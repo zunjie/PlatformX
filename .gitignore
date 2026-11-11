@@ -1,0 +1,5 @@
+qa/shots/
+qa/qa-result.json
+node_modules/
+*.log
+.DS_Store

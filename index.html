@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>PlatformX — 开源模型驱动的办公 / 开发 / 设计工作台</title>
+<link rel="icon" href="assets/logo-mark.svg" type="image/svg+xml" />
+<link rel="alternate icon" href="assets/favicon-32.png" sizes="32x32" />
+<link rel="apple-touch-icon" href="assets/favicon-180.png" />
+<link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+
+<div class="app" id="app">
+
+  <!-- ============ 侧边栏 ============ -->
+  <aside class="sidebar" id="sidebar">
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true">
+        <img src="assets/logo-mark.svg" alt="" width="21" height="26" />
+      </div>
+      <div class="brand-text">
+        <span class="brand-name">PlatformX</span>
+        <span class="brand-sub">开源模型工作台</span>
+      </div>
+      <button class="icon-btn sidebar-fold" id="sidebar-fold" title="收起侧边栏">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m14 6-6 6 6 6"/></svg>
+      </button>
+    </div>
+
+    <button class="new-task-btn" id="new-task">
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+      <span>新建任务</span>
+      <kbd>⌘N</kbd>
+    </button>
+
+    <button class="search-trigger" id="search-trigger">
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg>
+      <span>搜索任务、专家、技能</span>
+      <kbd>⌘K</kbd>
+    </button>
+
+    <nav class="nav" id="nav"></nav>
+
+    <div class="sidebar-projects">
+      <div class="section-head">
+        <span>项目</span>
+        <button class="mini-btn" data-route="projects" title="全部项目">全部</button>
+      </div>
+      <div id="sidebar-project-list" class="project-mini-list"></div>
+    </div>
+
+    <div class="sidebar-spacer"></div>
+
+    <div class="usage-card" id="usage-card" role="button" tabindex="0" title="查看套餐与积分">
+      <div class="usage-top"><span>积分余额</span><span class="usage-num">100</span></div>
+      <div class="usage-bar"><i style="width:100%"></i></div>
+      <div class="usage-foot">体验版 · 每月 100 积分</div>
+    </div>
+
+    <div class="sidebar-footer">
+      <button class="avatar" id="user-avatar" title="登录 / 账号">?</button>
+      <div class="user-meta">
+        <span class="user-name" id="user-name">未登录</span>
+        <span class="user-plan" id="user-plan">点击登录同步云端</span>
+      </div>
+      <button class="icon-btn" id="app-download-btn" data-act="app-download" title="下载移动端 APP">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="6.5" y="2.5" width="11" height="19" rx="2.5"/><path d="M10 3.5h4"/><path d="M12 19.5v.01"/></svg>
+      </button>
+    </div>
+  </aside>
+
+  <!-- ============ 主区域 ============ -->
+  <main class="main" id="main"></main>
+
+  <!-- ============ 上下文面板 ============ -->
+  <aside class="context" id="context"></aside>
+
+</div>
+
+<!-- 命令面板 -->
+<div class="overlay" id="palette-overlay" hidden>
+  <div class="palette" role="dialog" aria-label="命令面板">
+    <div class="palette-input">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg>
+      <input id="palette-input" placeholder="搜索或输入命令…" autocomplete="off" />
+      <kbd>ESC</kbd>
+    </div>
+    <div class="palette-list" id="palette-list"></div>
+  </div>
+</div>
+
+<!-- 通用弹窗 -->
+<div class="overlay" id="modal-overlay" hidden>
+  <div class="modal" id="modal" role="dialog"></div>
+</div>
+
+<!-- 下拉浮层 -->
+<div class="popover" id="popover" hidden></div>
+
+<!-- 拖拽上传遮罩 -->
+<div class="drop-veil" id="drop-veil">
+  <div class="drop-card">
+    <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5"/><path d="M4 15v3.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V15"/></svg>
+    <strong>松开即可添加到任务</strong>
+    <span>支持文档、表格、代码、图片，单文件 ≤ 100 MB</span>
+  </div>
+</div>
+
+<div class="toasts" id="toasts"></div>
+<input type="file" id="file-input" multiple hidden />
+
+<script src="js/workbuddy-cloud-sdk.js"></script>
+<script src="js/cloud.js"></script>
+<script src="js/data.js"></script>
+<script src="js/brand-icons.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

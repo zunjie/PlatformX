@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 175 218.4" width="175" height="218" role="img" aria-label="PlatformX">
+  <title>PlatformX</title>
+  <g stroke="#2752F5" stroke-width="10">
+    <line x1="20.0" y1="43.2" x2="155.0" y2="43.2"/>
+    <line x1="20.0" y1="174.7" x2="155.0" y2="174.7"/>
+    <line x1="87.5" y1="108.7" x2="20.0" y2="43.2"/>
+    <line x1="87.5" y1="108.7" x2="155.0" y2="43.2"/>
+    <line x1="87.5" y1="108.7" x2="20.0" y2="174.7"/>
+    <line x1="87.5" y1="108.7" x2="155.0" y2="174.7"/>
+  </g>
+  <g fill="#2752F5">
+    <circle cx="87.5" cy="108.7" r="37.5"/>
+    <circle cx="20.0" cy="43.2" r="20.0"/>
+    <circle cx="155.0" cy="43.2" r="20.0"/>
+    <circle cx="20.0" cy="174.7" r="20.0"/>
+    <circle cx="155.0" cy="174.7" r="20.0"/>
+  </g>
+  <g fill="#00CBB7">
+    <circle cx="20.0" cy="8.7" r="8.7"/>
+    <circle cx="155.0" cy="8.7" r="8.7"/>
+    <circle cx="20.0" cy="140.7" r="8.7"/>
+    <circle cx="155.0" cy="140.7" r="8.7"/>
+    <circle cx="20.0" cy="209.7" r="8.7"/>
+    <circle cx="155.0" cy="209.7" r="8.7"/>
+  </g>
+</svg>
