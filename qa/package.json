@@ -1,0 +1,22 @@
+{
+  "name": "platformx-qa",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "PlatformX 端到端测试（Puppeteer + Chrome Headless）",
+  "scripts": {
+    "test": "node px-test.mjs",
+    "test:app": "node app-dl-test.mjs",
+    "test:cloud": "node cloud-test.mjs",
+    "test:auth": "node auth-test.mjs",
+    "test:account": "node account-test.mjs",
+    "test:wechat": "node wechat-login-test.mjs",
+    "test:data": "node top300-test.mjs",
+    "test:skills": "node skills-test.mjs",
+    "test:experts": "node experts-connectors-test.mjs",
+    "test:pay": "node pay-test.mjs"
+  },
+  "devDependencies": {
+    "puppeteer-core": "^21.11.0"
+  }
+}
