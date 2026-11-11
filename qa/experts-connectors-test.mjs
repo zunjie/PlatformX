@@ -1,7 +1,6 @@
 import puppeteer from 'puppeteer-core';
+import { PAGE_URL as BASE, CHROME } from './env.mjs';
 
-const CHROME = 'C:/Program Files/Google/Chrome/Application/chrome.exe';
-const BASE = 'file:///C:/Users/lujie/WorkBuddy/2026-11-02-14-19-44/platformx/index.html';
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 let passed = 0, failed = 0;
