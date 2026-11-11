@@ -1,8 +1,6 @@
 import puppeteer from 'puppeteer-core';
+import { BASE_DIR as BASE, PAGE_URL as URL, CHROME } from './env.mjs';
 
-const BASE = 'C:/Users/lujie/WorkBuddy/2026-11-02-14-19-44/platformx';
-const URL = 'file:///' + BASE + '/index.html';
-const CHROME = 'C:/Program Files/Google/Chrome/Application/chrome.exe';
 
 const browser = await puppeteer.launch({ executablePath: CHROME, headless: 'new', args: ['--no-sandbox'] });
 const page = await browser.newPage();
