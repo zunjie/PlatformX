@@ -1,11 +1,15 @@
 import puppeteer from 'puppeteer-core';
 import { BASE_DIR as BASE, PAGE_URL as URL, CHROME } from './env.mjs';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 
 const SHOTS = BASE + '/qa/shots';
+/* 上传测试用的临时文件目录：跨平台（CI 无 /tmp/px-test） */
+const TMP = path.join(os.tmpdir(), 'platformx-qa');
 
 fs.mkdirSync(SHOTS, { recursive: true });
+fs.mkdirSync(TMP, { recursive: true });
 
 const results = [];
 const errors = [];
@@ -530,7 +534,7 @@ await check('F4', '资料预览弹窗可开可关', async () => {
 });
 
 await check('F5', '上传资料到资料库', async () => {
-  const tmp = '/tmp/px-test/测试上传.txt';
+  const tmp = path.join(TMP, '测试上传.txt');
   fs.writeFileSync(tmp, 'PlatformX QA 上传测试');
   const n0 = Number(await page.$eval('#nav [data-route="library"] .nav-count', e => e.textContent));
   await page.evaluate(() => { document.getElementById('file-input').dataset.target = 'library'; });
@@ -945,7 +949,7 @@ await check('K2', '刷新后状态持久（任务/模型/资料）', async () =>
 
 /* ============================ X. 输入区增强场景 ============================ */
 await check('X1', '本地文件加入输入区并可移除', async () => {
-  const tmp = '/tmp/px-test/任务附件.txt';
+  const tmp = path.join(TMP, '任务附件.txt');
   fs.writeFileSync(tmp, 'attachment test');
   await page.evaluate(() => { document.getElementById('file-input').dataset.target = ''; });
   const input = await page.$('#file-input');
