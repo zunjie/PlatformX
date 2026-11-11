@@ -1,11 +1,9 @@
 import puppeteer from 'puppeteer-core';
+import { BASE_DIR as BASE, PAGE_URL as URL, CHROME } from './env.mjs';
 import fs from 'fs';
 import path from 'path';
 
-const BASE = 'C:/Users/lujie/WorkBuddy/2026-11-02-14-19-44/platformx';
-const URL = 'file:///' + BASE + '/index.html';
 const SHOTS = BASE + '/qa/shots';
-const CHROME = 'C:/Program Files/Google/Chrome/Application/chrome.exe';
 
 fs.mkdirSync(SHOTS, { recursive: true });
 
