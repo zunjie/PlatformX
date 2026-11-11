@@ -6,6 +6,8 @@
 - **静态预览**：<https://zunjie.github.io/PlatformX/>
 - **代码仓库**：<https://github.com/zunjie/PlatformX>
 
+**中文** · [English](./README.en.md)
+
 ## 功能特性
 
 | 模块 | 说明 |
@@ -68,14 +70,17 @@ npx serve .
 `qa/` 下为 Puppeteer 端到端脚本，需本机安装 Chrome：
 
 ```bash
-npm i puppeteer-core
-node qa/px-test.mjs          # 全量回归（63 项）
-node qa/app-dl-test.mjs      # 移动端下载入口
-node qa/cloud-test.mjs       # 云服务加载与登录入口
-node qa/top300-test.mjs      # 技能/专家/连接器数据完整性
+cd qa
+npm install
+node px-test.mjs          # 全量回归（63 项）
+node app-dl-test.mjs      # 移动端下载入口
+node cloud-test.mjs       # 云服务加载与登录入口
+node top300-test.mjs      # 技能/专家/连接器数据完整性
 ```
 
-脚本默认以 `--allow-file-access-from-files --disable-web-security` 直接加载 `file://` 页面。
+Chrome 按平台自动探测，也可用 `CHROME_PATH=/path/to/chrome` 指定。脚本以 `file://` 加载页面，因此带 `--allow-file-access-from-files --disable-web-security` 参数。
+
+CI 由 `.github/workflows/qa.yml` 驱动：每次 push 与 PR 自动跑全量回归，并把 `qa-result.json` 与截图作为构建产物上传。
 
 ## 部署
 
@@ -116,3 +121,7 @@ Pages 配置：source = `main` / 根目录，仓库根部的 `.nojekyll` 用于�
 ## 声明
 
 界面与数据为演示用途，模型能力、连接器状态、积分流水等均为前端模拟数据；真实接入时可将 `js/data.js` 替换为后端接口返回。
+
+## 许可
+
+[MIT](./LICENSE)
