@@ -22,7 +22,6 @@ A pure static single-page workbench with zero build step and zero runtime depend
 | Automation | 10 ready-made scheduled task templates (daily digests, weekly reports, data audits, code-review reminders, …) |
 | Plans & Credits | 3 plan tiers, credit balance and consumption history |
 | Account | Phone OTP sign-in, WeChat QR sign-in, account linking, cloud sync after sign-in |
-| Mobile | Download entries for iOS / Android / HarmonyOS, with QR code |
 
 Brand icons are reproduced from [Simple Icons](https://simpleicons.org/) (CC0): 190 authentic vector logos plus 110 brand-colored monogram badges for Chinese products Simple Icons does not cover.
 
@@ -73,7 +72,6 @@ End-to-end suites live in `qa/` and require Chrome:
 cd qa
 npm install
 node px-test.mjs          # full regression (63 checks)
-node app-dl-test.mjs      # mobile download entries
 node cloud-test.mjs       # cloud SDK load and sign-in entry
 node top300-test.mjs      # skills / experts / connectors data integrity
 ```
@@ -113,11 +111,11 @@ When signed out or the cloud is unreachable, the app falls back to `localStorage
 
 Current version **v2.11**. Recent changes:
 
-- Skills / experts / connectors expanded to 300 each, in 8 domains
-- Brand icon system: 190 authentic vector logos + 110 Chinese-brand monograms
-- Cloud SDK vendored locally, removing the jsdelivr CDN dependency (no more blank screens or silent downgrades on network hiccups)
-- HarmonyOS download entry added, using the Huawei wordmark logo
+- Mobile download entries (iOS / Android / HarmonyOS, with QR code) temporarily removed; the implementation stays in git history and can be restored
 - WeChat Pay / Alipay logos restored in the payment sheet and connector list
+- Cloud SDK vendored locally, removing the jsdelivr CDN dependency (no more blank screens or silent downgrades on network hiccups)
+- Brand icon system: 190 authentic vector logos + 110 Chinese-brand monograms
+- Skills / experts / connectors expanded to 300 each, in 8 domains
 
 ## Notice
 
