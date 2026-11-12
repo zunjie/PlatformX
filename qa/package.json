@@ -6,7 +6,6 @@
   "description": "PlatformX 端到端测试（Puppeteer + Chrome Headless）",
   "scripts": {
     "test": "node px-test.mjs",
-    "test:app": "node app-dl-test.mjs",
     "test:cloud": "node cloud-test.mjs",
     "test:auth": "node auth-test.mjs",
     "test:account": "node account-test.mjs",
