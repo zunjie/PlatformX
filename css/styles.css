@@ -1173,21 +1173,3 @@ kbd {
 .acct-sync.synced { color: var(--green); }
 @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
 
-/* 移动端 APP 下载 */
-.app-dl { display: flex; gap: 20px; align-items: center; }
-.app-dl-qr { flex: none; padding: 12px; background: #fff; border: 1px solid var(--line); border-radius: 12px; }
-.app-dl-info { display: flex; flex-direction: column; gap: 10px; }
-.app-dl-name { font-size: 16px; font-weight: 650; color: var(--text-1); }
-.app-dl-sub { font-size: 12.5px; color: var(--text-2); line-height: 1.6; }
-.app-dl-btns { display: flex; gap: 10px; }
-.app-dl-btn { display: inline-flex; align-items: center; gap: 7px; height: 38px; padding: 0 16px; border-radius: 8px; border: 1px solid var(--line); background: #fff; color: #fff; font-size: 13px; font-weight: 600; cursor: pointer; transition: transform .12s, box-shadow .12s; }
-.app-dl-btn:hover { transform: translateY(-1px); box-shadow: var(--shadow-sm); }
-.app-dl-btn.ios { background: #17171b; border-color: #17171b; }
-.app-dl-btn.android { background: #3ddc84; border-color: #3ddc84; color: #073e21; }
-.app-dl-btn.harmony { background: #007DFF; border-color: #007DFF; }
-.app-dl-hint { font-size: 11.5px; color: var(--text-3); }
-@media (max-width: 480px) {
-  .app-dl { flex-direction: column; align-items: flex-start; }
-  .app-dl-btns { flex-wrap: wrap; }
-}
-
