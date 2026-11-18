@@ -975,6 +975,48 @@ kbd {
 .bh-credit-label { font-size: 11.5px; color: var(--text-3); margin-top: 3px; }
 .bh-note { font-size: 11.5px; color: var(--text-3); }
 
+/* 套餐页新增：到期 / 队列 / 商用授权 标签与签到按钮 */
+.bh-meta { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 10px; }
+.bh-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11.5px; color: var(--text-2);
+  background: rgba(255,255,255,.82); border: 1px solid var(--line);
+  border-radius: 999px; padding: 3px 9px;
+}
+.bh-chip svg { color: var(--brand); }
+.bh-actions { display: flex; align-items: center; gap: 8px; }
+.checkin-btn { height: 34px; font-size: 13px; }
+.checkin-btn.done { opacity: .6; cursor: default; }
+
+/* 积分概览：四宫格 + 底部说明 */
+.bu-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+.bu-cell { display: flex; flex-direction: column; gap: 4px; }
+.bu-cell .bu-name { font-size: 12.5px; }
+.bu-cell .bu-val { font-family: var(--mono); font-size: 21px; font-weight: 700; color: var(--text); line-height: 1.1; }
+.bu-unit { font-family: var(--font); font-size: 11.5px; font-weight: 400; color: var(--text-3); margin-left: 4px; }
+.bu-foot {
+  display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 12px;
+  padding-top: 12px; border-top: 1px dashed var(--line); font-size: 12px; color: var(--text-3);
+}
+
+/* 积分消耗规则表 */
+.cost-panel { padding: 6px 18px 16px; }
+.cost-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.cost-table th {
+  text-align: left; font-weight: 500; font-size: 12px; color: var(--text-3);
+  padding: 12px 4px 10px; border-bottom: 1px solid var(--line);
+}
+.cost-table th:not(:first-child), .cost-table td.ct-num { text-align: right; }
+.cost-table td { padding: 12px 4px; border-bottom: 1px solid var(--line-soft); vertical-align: middle; }
+.cost-table tr:last-child td { border-bottom: none; }
+.ct-name { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; color: var(--text); }
+.ct-name svg { color: var(--brand); }
+.ct-desc { display: block; font-size: 11.5px; color: var(--text-3); margin-top: 3px; }
+.ct-num { font-family: var(--mono); color: var(--text-2); white-space: nowrap; }
+.ct-discount { color: var(--red); font-weight: 600; }
+.ct-off { font-size: 10.5px; margin-left: 5px; background: #fdf0ef; border-radius: 4px; padding: 1px 5px; }
+.cost-note { display: flex; align-items: center; gap: 6px; margin-top: 12px; font-size: 11.5px; color: var(--text-3); }
+
 .billing-usage {
   border: 1px solid var(--line); border-radius: var(--r-lg); padding: 16px 20px; margin-bottom: 24px;
   background: #fff;
@@ -984,7 +1026,7 @@ kbd {
 .bu-val { font-family: var(--mono); color: var(--text-2); }
 .billing-usage .usage-bar { margin: 8px 0; }
 
-.plan-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 28px; }
+.plan-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 28px; }
 .plan-card {
   position: relative; display: flex; flex-direction: column;
   border: 1px solid var(--line); border-radius: var(--r-lg); padding: 20px;
@@ -1005,7 +1047,10 @@ kbd {
 .plan-price { display: flex; align-items: baseline; gap: 3px; margin: 14px 0 2px; }
 .plan-amount { font-size: 30px; font-weight: 700; font-family: var(--mono); line-height: 1; }
 .plan-period { font-size: 12.5px; color: var(--text-3); }
-.plan-credit { font-size: 12.5px; color: var(--text-2); margin-bottom: 14px; }
+.plan-credit { font-size: 12.5px; color: var(--text-2); margin-bottom: 8px; }
+.plan-subline { display: flex; flex-direction: column; gap: 3px; margin-bottom: 14px; }
+.pc-unit { font-size: 11.5px; color: var(--text-3); font-family: var(--mono); }
+.pc-equiv { font-size: 11.5px; color: var(--brand); }
 .plan-features { list-style: none; display: flex; flex-direction: column; gap: 8px; margin-bottom: 18px; flex: 1; }
 .plan-features li { display: flex; align-items: flex-start; gap: 7px; font-size: 13px; color: var(--text-2); line-height: 1.5; }
 .plan-features li svg { color: var(--green); margin-top: 3px; }
@@ -1023,6 +1068,7 @@ kbd {
 .cp-amount { display: flex; align-items: center; gap: 6px; font-size: 18px; font-weight: 700; font-family: var(--mono); }
 .cp-amount svg { color: #d9a10e; }
 .cp-price { font-size: 13px; color: var(--text-2); display: flex; align-items: center; gap: 5px; }
+.cp-unit { font-size: 11px; color: var(--text-3); font-family: var(--mono); }
 .cp-tag { font-size: 10.5px; color: var(--red); background: #fdf0ef; border-radius: 4px; padding: 0 5px; }
 
 .credit-log { display: flex; flex-direction: column; }
@@ -1076,11 +1122,16 @@ kbd {
 .pay-hint { font-size: 12px; color: var(--text-3); text-align: center; line-height: 1.6; }
 
 
+@media (max-width: 1180px) {
+  .plan-grid { grid-template-columns: repeat(2, 1fr); }
+  .bu-grid { grid-template-columns: repeat(2, 1fr); }
+}
 @media (max-width: 900px) {
   .plan-grid { grid-template-columns: 1fr; }
   .credit-pack-grid { grid-template-columns: repeat(2, 1fr); }
   .billing-hero { flex-direction: column; align-items: flex-start; }
   .bh-right { flex-direction: row; align-items: center; justify-content: space-between; width: 100%; }
+  .cost-table th:nth-child(4), .cost-table td:nth-child(4) { display: none; }
 }
 
 /* ============================ 响应式 ============================ */

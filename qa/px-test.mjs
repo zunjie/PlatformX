@@ -803,29 +803,29 @@ await check('I9', '侧栏积分卡片与套餐标签', async () => {
   return '积分卡片 + 用户标签（' + plan.trim() + '）';
 });
 
-await check('I10', '套餐页三档齐全 + 月付/年付双价', async () => {
+await check('I10', '套餐页四档齐全 + 月付/年付双价', async () => {
   await page.click('#nav [data-route="plans"]');
   await sleep(400);
   const h = await page.$eval('.page', e => e.textContent);
-  assert(/体验版/.test(h) && /标准版/.test(h) && /专业版/.test(h), '三套餐缺失');
-  assert(/¥9/.test(h) && /¥99/.test(h), '月付价格缺失');
-  // 切年付验证 88 / 888
+  assert(/免费版/.test(h) && /基础会员/.test(h) && /标准会员/.test(h) && /高级会员/.test(h), '四档套餐缺失');
+  assert(/¥39/.test(h) && /¥129/.test(h) && /¥399/.test(h), '月付价格缺失');
+  // 切年付验证 399 / 1299 / 3999
   await page.click('.cycle-btn[data-id="year"]');
   await sleep(250);
   const h2 = await page.$eval('.plan-grid', e => e.textContent);
-  assert(/¥88/.test(h2) && /¥888/.test(h2), '年付价格缺失');
+  assert(/¥399/.test(h2) && /¥1299/.test(h2) && /¥3999/.test(h2), '年付价格缺失');
   await page.click('.cycle-btn[data-id="month"]');
   await sleep(200);
-  return '三档套餐 + 月付/年付双价';
+  return '四档套餐 + 月付/年付双价';
 });
 
 await check('I11', '充值积分：弹扫码支付 → 模拟到账', async () => {
-  await page.click('[data-act="buy-credits"][data-id="p1000"]');
+  await page.click('[data-act="buy-credits"][data-id="p2000"]');
   await sleep(400);
   const overlay = await page.$eval('#modal-overlay', e => !e.hidden);
   assert(overlay, '充值未弹支付弹窗');
   const mtext = await page.$eval('#modal', e => e.textContent);
-  assert(/积分充值/.test(mtext) && /¥45/.test(mtext), '充值弹窗金额错误');
+  assert(/积分充值/.test(mtext) && /¥52/.test(mtext), '充值弹窗金额错误');
   // 切支付宝再切回微信，验证支付方式切换
   await page.click('.pay-method[data-id="alipay"]');
   await sleep(150);
@@ -835,25 +835,25 @@ await check('I11', '充值积分：弹扫码支付 → 模拟到账', async () =
   await page.click('[data-act="simulate-pay"]');
   await sleep(400);
   const num = await page.$eval('.bh-credit-num', e => e.textContent.trim());
-  assert(num === '1100', '充值后应为 1100, 实际 ' + num);
+  assert(num === '2100', '充值后应为 2100, 实际 ' + num);
   const log = await page.$eval('.credit-log', e => e.textContent);
-  assert(/充值 1000 积分/.test(log), '流水未记录');
+  assert(/充值 2000 积分/.test(log), '流水未记录');
   return num + ' 积分';
 });
 
-await check('I12', '购买标准版：弹支付 → 到账切换', async () => {
+await check('I12', '购买标准会员：弹支付 → 到账切换', async () => {
   await page.click('[data-act="switch-plan"][data-id="standard"]');
   await sleep(400);
   const overlay = await page.$eval('#modal-overlay', e => !e.hidden);
   assert(overlay, '购买未弹支付弹窗');
-  assert(/开通标准版/.test(await page.$eval('#modal', e => e.textContent)), '标题错误');
+  assert(/开通标准会员/.test(await page.$eval('#modal', e => e.textContent)), '标题错误');
   await page.click('[data-act="simulate-pay"]');
   await sleep(450);
   const plan = await page.$eval('.bh-plan', e => e.textContent);
-  assert(/标准版/.test(plan), '未切换: ' + plan);
+  assert(/标准会员/.test(plan), '未切换: ' + plan);
   const num = await page.$eval('.bh-credit-num', e => e.textContent.trim());
-  assert(num === '3100', '标准版应为 3100（1100+2000）, 实际 ' + num);
-  return '标准版 · ' + num;
+  assert(num === '7100', '标准会员应为 7100（2100+5000）, 实际 ' + num);
+  return '标准会员 · ' + num;
 });
 
 await check('I13', '体验版积分不足拦截并可跳转', async () => {
@@ -887,6 +887,28 @@ await check('I13', '体验版积分不足拦截并可跳转', async () => {
     localStorage.setItem('platformx.store.v1', JSON.stringify(s));
   });
   return '拦截 → 跳转套餐页';
+});
+
+await check('I13b', '每日签到发放积分且当日不可重复', async () => {
+  await page.evaluate(() => {
+    const s = JSON.parse(localStorage.getItem('platformx.store.v1'));
+    s.credits = 100; s.plan = 'trial'; s.lastCheckIn = ''; s.streak = 0;
+    localStorage.setItem('platformx.store.v1', JSON.stringify(s));
+    location.hash = '#/plans'; location.reload();
+  });
+  await page.waitForFunction(() => document.querySelector('.checkin-btn'), { timeout: 5000 });
+  await sleep(400);
+  const btn = await page.$eval('.checkin-btn', e => e.textContent.replace(/\s+/g, ' ').trim());
+  assert(/签到领 20 积分/.test(btn), '签到按钮文案错误: ' + btn);
+  await page.click('.checkin-btn');
+  await sleep(450);
+  const num = await page.$eval('.bh-credit-num', e => e.textContent.trim());
+  assert(num === '120', '签到后应为 120, 实际 ' + num);
+  const dis = await page.$eval('.checkin-btn', e => e.disabled);
+  assert(dis, '签到后按钮应禁用');
+  const log = await page.$eval('.credit-log', e => e.textContent);
+  assert(/每日签到/.test(log), '签到流水未记录');
+  return '签到 +20 → ' + num + ' 积分';
 });
 
 /* ============================ J. 命令面板 ============================ */

@@ -367,8 +367,15 @@ function loadStore() {
 /* 兼容旧数据：缺失套餐/积分字段时补齐 */
 function normalizePlan() {
   if (!store.plan || !PLANS.some(p => p.id === store.plan)) store.plan = 'trial';
-  if (typeof store.credits !== 'number' || isNaN(store.credits)) store.credits = planMeta().credits;
+  if (typeof store.credits !== 'number' || isNaN(store.credits)) {
+    store.credits = store.plan === 'trial' ? 100 : planMeta().credits;
+  }
   if (!Array.isArray(store.creditLog)) store.creditLog = [];
+  if (!store.creditPeriod || typeof store.creditPeriod !== 'object') {
+    store.creditPeriod = { start: monthStart(), expires: monthEnd(), granted: 0 };
+  }
+  if (typeof store.streak !== 'number') store.streak = 0;
+  ensureCreditPeriod();
 }
 
 /* 内置模型 + 已保存的自定义模型合并为可选列表 */
@@ -876,6 +883,74 @@ async function logout() {
 /* ------------------------------ 积分与套餐 ------------------------------ */
 const planMeta = (id = store.plan) => PLANS.find(p => p.id === id) || PLANS[0];
 
+/* 月度积分周期：会员积分按自然月发放，当月有效、月底清零
+ * store.creditPeriod = { start, expires, granted }
+ */
+function monthStart(ts = Date.now()) {
+  const d = new Date(ts);
+  return new Date(d.getFullYear(), d.getMonth(), 1).getTime();
+}
+function monthEnd(ts = Date.now()) {
+  const d = new Date(ts);
+  return new Date(d.getFullYear(), d.getMonth() + 1, 1).getTime();
+}
+
+/* 跨月时重置周期并发放会员积分（每月只发一次） */
+function ensureCreditPeriod() {
+  const end = monthEnd();
+  const p = store.creditPeriod;
+  if (p && p.expires === end) return false;
+  store.creditPeriod = { start: monthStart(), expires: end, granted: 0 };
+  const grant = planMeta().monthlyGrant || 0;
+  if (grant > 0) {
+    store.creditPeriod.granted = grant;
+    store.credits += grant;
+    store.creditLog.unshift({
+      id: uid('cl'), delta: grant,
+      note: `${planMeta().name} · ${new Date().getMonth() + 1} 月积分发放（当月有效）`,
+      at: Date.now()
+    });
+    if (store.creditLog.length > 100) store.creditLog.length = 100;
+    saveStore();
+  }
+  return true;
+}
+
+/* 本月积分统计：已消耗、已获得、距到期天数 */
+function periodStats() {
+  const p = store.creditPeriod || {};
+  const start = p.start || monthStart();
+  const expires = p.expires || monthEnd();
+  let spent = 0, granted = 0;
+  store.creditLog.forEach(l => {
+    if (l.at < start) return;
+    if (l.delta < 0) spent += -l.delta; else granted += l.delta;
+  });
+  return {
+    spent, granted,
+    daysLeft: Math.max(0, Math.ceil((expires - Date.now()) / 86400000)),
+    expiresText: `${new Date(expires).getMonth() + 1} 月 ${new Date(expires).getDate()} 日`
+  };
+}
+
+/* 每日签到 */
+function todayKey() {
+  const d = new Date();
+  return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+}
+function canCheckIn() { return store.lastCheckIn !== todayKey(); }
+function doCheckIn() {
+  if (!canCheckIn()) { toast('今天已经签到过了，明天再来'); return; }
+  const reward = planMeta().checkIn || 20;
+  const yesterday = new Date(Date.now() - 86400000);
+  const yKey = `${yesterday.getFullYear()}-${yesterday.getMonth() + 1}-${yesterday.getDate()}`;
+  store.streak = store.lastCheckIn === yKey ? (store.streak || 1) + 1 : 1;
+  store.lastCheckIn = todayKey();
+  const bonus = store.streak >= 7 ? Math.round(reward * 0.5) : 0;   // 连续 7 天额外 50%
+  addCredits(reward + bonus, `每日签到${store.streak > 1 ? `（连续 ${store.streak} 天）` : ''}${bonus ? ' + 连签奖励' : ''}`);
+  toast(`签到成功 +${reward + bonus} 积分`);
+}
+
 function addCredits(amount, note) {
   store.credits += amount;
   store.creditLog.unshift({ id: uid('cl'), delta: amount, note, at: Date.now() });
@@ -915,25 +990,43 @@ function switchPlan(id, cycle = billingCycle()) {
   });
 }
 
-/* 支付成功后真正生效（切换套餐 + 赠送积分） */
+/* 支付成功后真正生效（切换套餐 + 发放当月积分） */
 function activatePlan(id, cycle) {
   const p = PLANS.find(x => x.id === id);
   if (!p) return;
   store.plan = p.id;
   const price = cycle === 'year' ? p.priceYear : p.price;
   const cycleLabel = cycle === 'year' ? '年付' : '月付';
-  addCredits(p.credits, `开通${p.name}（${cycleLabel} ¥${price}）· 赠送 ${p.credits} 积分`);
-  toast(`已开通${p.name}（${cycleLabel}），赠送 ${p.credits} 积分`);
+  if (!store.creditPeriod || store.creditPeriod.expires !== monthEnd()) {
+    store.creditPeriod = { start: monthStart(), expires: monthEnd(), granted: 0 };
+  }
+  if (p.monthlyGrant > 0) {
+    store.creditPeriod.granted = (store.creditPeriod.granted || 0) + p.monthlyGrant;
+    addCredits(p.monthlyGrant, `开通${p.name}（${cycleLabel} ¥${price}）· 发放当月 ${p.monthlyGrant} 积分`);
+  } else {
+    saveStore();
+    refreshBillingUI();
+  }
+  toast(`已开通${p.name}（${cycleLabel}）${p.monthlyGrant ? `，到账 ${p.monthlyGrant} 积分` : ''}`);
   renderPlans();
   renderNav();
 }
 
-/* 任务成本（积分）与套餐额度校验 */
-function taskCost() {
-  const plan = planMeta();
-  if (plan.id === 'pro') return 0;      // 专业版不限积分
-  if (plan.id === 'standard') return 1;  // 标准版每次任务 1 积分（量大）
-  return 3;                              // 体验版每次任务 3 积分
+/* 任务成本（积分）：按任务类型基础价 × 套餐闲时系数
+ * 闲时 = 22:00–08:00，非闲时按原价
+ */
+function isOffPeak() {
+  const h = new Date().getHours();
+  return h >= 22 || h < 8;
+}
+function baseTaskCost(mode) {
+  const t = TASK_COSTS.find(x => x.mode === mode);
+  return t ? t.base : 5;
+}
+function taskCost(mode = state.mode) {
+  const base = baseTaskCost(mode);
+  const coef = isOffPeak() ? planMeta().offPeak : 1;
+  return Math.max(1, Math.ceil(base * coef));
 }
 
 function planTaskLimit() {
@@ -1048,7 +1141,7 @@ function refreshBillingUI() {
     card.innerHTML = `
       <div class="usage-top"><span>积分余额</span><span class="usage-num">${store.credits}</span></div>
       <div class="usage-bar"><i style="width:${pct}%"></i></div>
-      <div class="usage-foot">${plan.name} · 每月 ${plan.credits} 积分</div>`;
+      <div class="usage-foot">${plan.name} · ${plan.monthlyGrant ? `每月 ${plan.monthlyGrant} 积分` : `每日签到 ${plan.checkIn} 积分`}</div>`;
     card.onclick = () => navigate('plans');
   }
   const planLabel = $('#user-plan');
@@ -1980,22 +2073,34 @@ function renderAutomations() {
 
 /* ------------------------------ 套餐与积分 ------------------------------ */
 function renderPlans() {
+  ensureCreditPeriod();
   const plan = planMeta();
-  const taskCount = state.tasks.length;
-  const maxTasks = planTaskLimit();
-  const usedPct = maxTasks === Infinity ? 0 : Math.min(100, Math.round(taskCount / maxTasks * 100));
   const cycle = billingCycle();
+  const stats = periodStats();
+  const quota = plan.credits || 600;
+  const usedPct = Math.min(100, Math.max(2, Math.round(stats.spent / Math.max(1, quota) * 100)));
+  const checkinReady = canCheckIn();
+  const off = isOffPeak();
+  const planIcon = { trial: 'gift', basic: 'gem', standard: 'bolt', pro: 'crown' };
+
+  /* 单档在闲时与非闲时的积分单价 */
+  const costOf = (p, mode) => Math.max(1, Math.ceil(baseTaskCost(mode) * p.offPeak));
 
   $('#main').innerHTML = `
     ${topbar({ crumb: `<b>套餐与积分</b><span class="sep">/</span><span>${plan.name}</span>` })}
     <div class="scroll"><div class="page">
-      ${pageHead('套餐与积分', '积分用于执行任务与调用高级能力，套餐决定额度与并发上限。')}
+      ${pageHead('套餐与积分', '积分按任务类型消耗，会员积分每月发放、当月有效；闲时（22:00–08:00）执行任务最低 1 折。')}
 
       <div class="billing-hero">
         <div class="bh-left">
           <div class="bh-label">当前套餐</div>
           <div class="bh-plan">${esc(plan.name)}<span class="bh-tag">${esc(plan.tag)}</span></div>
           <div class="bh-desc">${esc(plan.desc)}</div>
+          <div class="bh-meta">
+            <span class="bh-chip">${icon('calendar', 12)}积分到期 ${stats.expiresText}（剩 ${stats.daysLeft} 天）</span>
+            <span class="bh-chip">${icon('cpu', 12)}${esc(plan.queue)}</span>
+            <span class="bh-chip">${icon('shield', 12)}${esc(plan.commercial)}</span>
+          </div>
         </div>
         <div class="bh-right">
           <div class="bh-credit">
@@ -2005,27 +2110,44 @@ function renderPlans() {
               <div class="bh-credit-label">可用积分</div>
             </div>
           </div>
-          <button class="primary-btn" data-act="open-recharge">${icon('plus', 13)} 充值积分</button>
+          <div class="bh-actions">
+            <button class="ghost-btn checkin-btn ${checkinReady ? '' : 'done'}" data-act="check-in" ${checkinReady ? '' : 'disabled'}>
+              ${icon('gift', 13)} ${checkinReady ? `签到领 ${plan.checkIn} 积分` : '今日已签到'}
+            </button>
+            <button class="primary-btn" data-act="open-recharge">${icon('plus', 13)} 充值积分</button>
+          </div>
         </div>
       </div>
 
       <div class="billing-usage">
-        <div class="bu-row">
-          <span class="bu-name">任务额度</span>
-          <span class="bu-val">${maxTasks === Infinity ? '不限' : `${taskCount} / ${maxTasks}`}</span>
+        <div class="bu-grid">
+          <div class="bu-cell">
+            <div class="bu-name">本月已消耗</div>
+            <div class="bu-val">${stats.spent}<span class="bu-unit">/ ${quota} 积分</span></div>
+          </div>
+          <div class="bu-cell">
+            <div class="bu-name">本月已获得</div>
+            <div class="bu-val">${stats.granted}<span class="bu-unit">积分</span></div>
+          </div>
+          <div class="bu-cell">
+            <div class="bu-name">距积分清零</div>
+            <div class="bu-val">${stats.daysLeft}<span class="bu-unit">天</span></div>
+          </div>
+          <div class="bu-cell">
+            <div class="bu-name">闲时折扣</div>
+            <div class="bu-val">${plan.offPeak === 1 ? '无' : plan.offPeak * 10 + ' 折'}<span class="bu-unit">${off ? '当前闲时' : '当前高峰'}</span></div>
+          </div>
         </div>
         <div class="usage-bar"><i style="width:${usedPct}%"></i></div>
-        <div class="bu-row">
-          <span class="bu-name">并发任务</span>
-          <span class="bu-val">${plan.limits.maxConcurrent === Infinity ? '不限' : plan.limits.maxConcurrent + ' 个'}</span>
-        </div>
-        <div class="bu-row">
-          <span class="bu-name">单次任务成本</span>
-          <span class="bu-val">${taskCost() === 0 ? '免积分' : taskCost() + ' 积分'}</span>
+        <div class="bu-foot">
+          <span>任务额度 ${planTaskLimit() === Infinity ? '不限' : `${state.tasks.length} / ${planTaskLimit()}`}</span>
+          <span>并发 ${plan.limits.maxConcurrent} 个</span>
+          <span>导出${plan.watermark ? '带平台标识' : '无标识'}</span>
+          <span>连签 ${store.streak || 0} 天${(store.streak || 0) >= 7 ? ' · 已享 +50% 奖励' : ''}</span>
         </div>
       </div>
 
-      <div class="section-title"><span>升级套餐</span><span class="grow"></span>
+      <div class="section-title"><span>选择会员档位</span><span class="grow"></span>
         <div class="cycle-switch">
           <button class="cycle-btn ${cycle === 'month' ? 'active' : ''}" data-act="set-cycle" data-id="month">月付</button>
           <button class="cycle-btn ${cycle === 'year' ? 'active' : ''}" data-act="set-cycle" data-id="year">年付 · 省更多</button>
@@ -2035,37 +2157,67 @@ function renderPlans() {
         ${PLANS.map(p => {
           const price = cycle === 'year' ? p.priceYear : p.price;
           const period = cycle === 'year' ? '年' : '月';
-          const per = p.price === 0 ? '永久' : `${cycle === 'year' ? '年' : '月'}付`;
           const save = cycle === 'year' && p.price > 0 ? p.price * 12 - p.priceYear : 0;
+          const monthCredits = p.monthlyGrant || 0;
           return `
           <div class="plan-card ${p.id === plan.id ? 'current' : ''} ${p.highlight ? 'highlight' : ''}">
             ${p.highlight ? `<div class="plan-ribbon">最受欢迎</div>` : ''}
             <div class="plan-head">
-              <div class="plan-name">${icon(p.id === 'pro' ? 'crown' : p.id === 'standard' ? 'bolt' : 'gem', 16)}${esc(p.name)}</div>
+              <div class="plan-name">${icon(planIcon[p.id] || 'gem', 16)}${esc(p.name)}</div>
               ${p.tag ? `<span class="plan-tag">${esc(p.tag)}</span>` : ''}
             </div>
             <div class="plan-price">
               ${p.price === 0 ? `<span class="plan-amount">免费</span>` : `<span class="plan-amount">¥${price}</span><span class="plan-period">/ ${period}</span>`}
             </div>
             <div class="plan-credit">
-              ${p.price === 0 ? '每月 ' + p.credits + ' 积分' : `${per} · 每月 ${p.credits} 积分`}
+              ${monthCredits > 0 ? `每月 ${monthCredits} 积分` : `每日签到 ${p.checkIn} 积分`}
               ${save > 0 ? `<span class="plan-save">省 ¥${save}</span>` : ''}
+            </div>
+            <div class="plan-subline">
+              ${p.unitPrice > 0
+                ? `<span class="pc-unit">${p.unitPrice.toFixed(2)} 元 / 100 积分</span>`
+                : `<span class="pc-unit">仅可通过签到获取</span>`}
+              <span class="pc-equiv">约 ${Math.floor((monthCredits || p.credits) / costOf(p, 'office'))} 次办公任务</span>
             </div>
             <ul class="plan-features">
               ${p.features.map(f => `<li>${icon('check', 12)}${esc(f)}</li>`).join('')}
             </ul>
             <button class="plan-btn ${p.id === plan.id ? 'ghost-btn' : (p.highlight ? 'primary-btn' : 'ghost-btn')}" data-act="switch-plan" data-id="${p.id}" ${p.id === plan.id ? 'disabled' : ''}>
-              ${p.id === plan.id ? '当前套餐' : p.price === 0 ? '立即开通' : '立即购买'}
+              ${p.id === plan.id ? '当前套餐' : p.price === 0 ? '切换免费版' : '立即开通'}
             </button>
           </div>`;
         }).join('')}
       </div>
 
-      <div class="section-title"><span>积分充值</span><span class="grow"></span><span class="bh-note">支持微信支付 / 支付宝扫码</span></div>
+      <div class="section-title"><span>积分消耗规则</span><span class="grow"></span>
+        <span class="bh-note">${off ? '当前为闲时，执行任务已按折扣计费' : '闲时时段 22:00–08:00，非闲时按基础价计费'}</span>
+      </div>
+      <div class="panel cost-panel">
+        <table class="cost-table">
+          <thead>
+            <tr><th>任务类型</th><th>基础消耗</th><th>你的实际消耗${plan.offPeak === 1 ? '' : '（闲时）'}</th><th>剩余积分约可做</th></tr>
+          </thead>
+          <tbody>
+            ${TASK_COSTS.map(t => {
+              const c = costOf(plan, t.mode);
+              return `<tr>
+                <td><span class="ct-name">${icon(MODES.find(m => m.id === t.mode)?.ico || 'doc', 13)}${esc(t.name)}</span><span class="ct-desc">${esc(t.desc)}</span></td>
+                <td class="ct-num">${t.base}</td>
+                <td class="ct-num ${c < t.base ? 'ct-discount' : ''}">${c} 积分${c < t.base ? `<span class="ct-off">-${Math.round((1 - c / t.base) * 100)}%</span>` : ''}</td>
+                <td class="ct-num">${Math.floor(store.credits / Math.max(1, c))} 次</td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+        <div class="cost-note">${icon('clock', 12)} 每笔任务按提交时所在时段计价；确认执行后立即扣除积分，失败任务自动退还。</div>
+      </div>
+
+      <div class="section-title"><span>积分充值</span><span class="grow"></span><span class="bh-note">充值积分不随月度清零，有效期 12 个月</span></div>
       <div class="credit-pack-grid">
         ${CREDIT_PACKS.map(c => `
           <button class="credit-pack" data-act="buy-credits" data-id="${c.id}">
             <div class="cp-amount">${icon('coin', 15)}${c.credits}</div>
+            <div class="cp-unit">${c.unit.toFixed(2)} 元 / 100 积分</div>
             <div class="cp-price">¥${c.price}${c.tag ? `<span class="cp-tag">${esc(c.tag)}</span>` : ''}</div>
           </button>`).join('')}
       </div>
@@ -2399,13 +2551,13 @@ function ensureBilling() {
     return false;
   }
 
-  // 积分余额校验（专业版免积分）
+  // 积分余额校验
   if (cost > 0 && store.credits < cost) {
-    openUpgradeModal(`积分不足（需 ${cost} 积分，当前 ${store.credits}）`, '充值积分或升级到专业版（免积分）后继续。');
+    openUpgradeModal(`积分不足（需 ${cost} 积分，当前 ${store.credits}）`, '充值积分或升级更高档位（积分单价更低、闲时折扣更大）后继续。');
     return false;
   }
 
-  if (cost > 0) spendCredits(cost, '执行任务');
+  if (cost > 0) spendCredits(cost, `${MODES.find(m => m.id === state.mode)?.name || ''}任务${isOffPeak() ? '（闲时折扣）' : ''}`);
   return true;
 }
 
@@ -2415,7 +2567,7 @@ function openUpgradeModal(title, desc) {
     desc,
     body: `<div class="upgrade-hint">
       <div class="uh-ico">${icon('gem', 22)}</div>
-      <div class="uh-text">升级套餐可获得更多积分与更高任务额度，专业版执行任务不扣积分。</div>
+      <div class="uh-text">升级套餐可获得更多月度积分、更低的积分单价与更大的闲时折扣；免费版每日签到也能领积分。</div>
     </div>`,
     foot: `
       <button class="ghost-btn" data-act="close-modal">取消</button>
@@ -3120,6 +3272,7 @@ function handleClick(e) {
     case 'switch-plan': switchPlan(id); break;
     case 'set-cycle': setBillingCycle(id); break;
     case 'open-recharge': scrollToRecharge(); break;
+    case 'check-in': doCheckIn(); break;
     case 'buy-credits': {
       const pack = CREDIT_PACKS.find(p => p.id === id);
       if (!pack) break;

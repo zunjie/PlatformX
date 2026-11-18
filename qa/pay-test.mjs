@@ -26,20 +26,21 @@ async function gotoPlans() {
   await sleep(600);
 }
 
-// T1 套餐页渲染，价格应为月付标准版9/专业版99
+// T1 套餐页渲染，月付 免费/39/129/399
 await check('T1', '套餐页渲染月付价格', async () => {
   await gotoPlans();
   const prices = await page.evaluate(() => {
     return [...document.querySelectorAll('.plan-amount')].map(e => e.textContent.trim());
   });
-  assert(prices.length === 3, '应有3个套餐价格，实得' + prices.length);
-  assert(prices[0] === '免费', '体验版应为免费');
-  assert(prices[1] === '¥9', '标准版月付应为¥9，实得' + prices[1]);
-  assert(prices[2] === '¥99', '专业版月付应为¥99，实得' + prices[2]);
+  assert(prices.length === 4, '应有4个套餐价格，实得' + prices.length);
+  assert(prices[0] === '免费', '免费版应为免费');
+  assert(prices[1] === '¥39', '基础会员月付应为¥39，实得' + prices[1]);
+  assert(prices[2] === '¥129', '标准会员月付应为¥129，实得' + prices[2]);
+  assert(prices[3] === '¥399', '高级会员月付应为¥399，实得' + prices[3]);
   return prices.join(' | ');
 });
 
-// T2 切换到年付，价格变为 88 / 888，且显示省金额
+// T2 切换到年付，价格变为 399 / 1299 / 3999，且显示省金额
 await check('T2', '年付价格切换', async () => {
   await page.evaluate(() => {
     document.querySelector('.cycle-btn[data-id="year"]').click();
@@ -48,16 +49,18 @@ await check('T2', '年付价格切换', async () => {
   const prices = await page.evaluate(() => {
     return [...document.querySelectorAll('.plan-amount')].map(e => e.textContent.trim());
   });
-  assert(prices[1] === '¥88', '标准版年付应为¥88，实得' + prices[1]);
-  assert(prices[2] === '¥888', '专业版年付应为¥888，实得' + prices[2]);
+  assert(prices[1] === '¥399', '基础会员年付应为¥399，实得' + prices[1]);
+  assert(prices[2] === '¥1299', '标准会员年付应为¥1299，实得' + prices[2]);
+  assert(prices[3] === '¥3999', '高级会员年付应为¥3999，实得' + prices[3]);
   const saves = await page.evaluate(() => [...document.querySelectorAll('.plan-save')].map(e => e.textContent.trim()));
-  assert(saves.length === 2, '应有2个省金额标签');
-  assert(saves[0] === '省 ¥20', '标准版年付省¥20，实得' + saves[0]);
-  assert(saves[1] === '省 ¥300', '专业版年付省¥300，实得' + saves[1]);
+  assert(saves.length === 3, '应有3个省金额标签');
+  assert(saves[0] === '省 ¥69', '基础会员年付省¥69，实得' + saves[0]);
+  assert(saves[1] === '省 ¥249', '标准会员年付省¥249，实得' + saves[1]);
+  assert(saves[2] === '省 ¥789', '高级会员年付省¥789，实得' + saves[2]);
   return prices.join(' | ') + ' / ' + saves.join(' | ');
 });
 
-// T3 点击标准版购买，弹出支付弹窗，默认微信
+// T3 点击标准会员购买，弹出支付弹窗，默认微信
 await check('T3', '购买套餐弹出支付弹窗', async () => {
   await page.evaluate(() => {
     document.querySelector('.cycle-btn[data-id="month"]').click();
@@ -70,8 +73,8 @@ await check('T3', '购买套餐弹出支付弹窗', async () => {
   const overlay = await page.evaluate(() => !document.querySelector('#modal-overlay').hidden);
   assert(overlay, '支付弹窗未打开');
   const txt = await page.evaluate(() => document.querySelector('#modal').textContent);
-  assert(txt.includes('开通标准版'), '标题应含开通标准版');
-  assert(txt.includes('¥9'), '金额应为9');
+  assert(txt.includes('开通标准会员'), '标题应含开通标准会员');
+  assert(txt.includes('¥129'), '金额应为129');
   const brand = await page.evaluate(() => document.querySelector('.pay-qr-brand').textContent.trim());
   assert(brand.includes('微信'), '默认应微信支付');
   const qr = await page.evaluate(() => document.querySelector('.pay-qr svg') !== null);
@@ -99,7 +102,7 @@ await check('T5', '模拟支付后套餐生效', async () => {
   });
   await sleep(400);
   const plan = await page.evaluate(() => document.querySelector('.bh-plan').textContent.trim());
-  assert(plan.includes('标准版'), '应切到标准版，实得' + plan);
+  assert(plan.includes('标准会员'), '应切到标准会员，实得' + plan);
   const overlay = await page.evaluate(() => document.querySelector('#modal-overlay').hidden);
   assert(overlay, '弹窗应关闭');
   return plan;
@@ -111,12 +114,12 @@ await check('T6', '积分充值弹支付弹窗', async () => {
   await sleep(500);
   const before = await page.evaluate(() => JSON.parse(localStorage.getItem('platformx.store.v1')).credits);
   await page.evaluate(() => {
-    document.querySelector('.credit-pack[data-id="p100"]').click();
+    document.querySelector('.credit-pack[data-id="p500"]').click();
   });
   await sleep(300);
   const txt = await page.evaluate(() => document.querySelector('#modal').textContent);
   assert(txt.includes('积分充值'), '标题应含积分充值');
-  assert(txt.includes('¥6'), '金额应为6');
+  assert(txt.includes('¥15'), '金额应为15');
   return 'before credits=' + before;
 });
 

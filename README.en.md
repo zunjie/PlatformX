@@ -20,7 +20,7 @@ A pure static single-page workbench with zero build step and zero runtime depend
 | Skills | 300 invocable skills covering documents, coding, design and data processing |
 | Connectors | 300 third-party service connectors in 7 groups, including DingTalk, Slack, Microsoft Teams and Telegram |
 | Automation | 10 ready-made scheduled task templates (daily digests, weekly reports, data audits, code-review reminders, …) |
-| Plans & Credits | 3 plan tiers, credit balance and consumption history |
+| Plans & Credits | Four membership tiers (Free / Basic / Standard / Pro), daily check-in, monthly credits that expire at month end, per-task-type credit costs, off-peak discounts, unit pricing, top-up packs and usage history |
 | Account | Phone OTP sign-in, WeChat QR sign-in, account linking, cloud sync after sign-in |
 
 Brand icons are reproduced from [Simple Icons](https://simpleicons.org/) (CC0): 190 authentic vector logos plus 110 brand-colored monogram badges for Chinese products Simple Icons does not cover.
@@ -109,8 +109,9 @@ When signed out or the cloud is unreachable, the app falls back to `localStorage
 
 ## Version
 
-Current version **v2.11**. Recent changes:
+Current version **v2.13**. Recent changes:
 
+- Plans & credits rebuilt as a credit-membership model (inspired by Jimeng AI): four tiers, daily check-in, monthly credits expiring at month end, per-task-type costs and off-peak discounts
 - Mobile download entries (iOS / Android / HarmonyOS, with QR code) temporarily removed; the implementation stays in git history and can be restored
 - WeChat Pay / Alipay logos restored in the payment sheet and connector list
 - Cloud SDK vendored locally, removing the jsdelivr CDN dependency (no more blank screens or silent downgrades on network hiccups)

@@ -11261,45 +11261,80 @@ const TEMPLATES = [
   { id: 't3', mode: 'design', title: '出三版视觉方向', desc: '给出调性关键词，得到可评审的界面方案', prompt: '为 PlatformX 官网首页设计三个视觉方向：极简专业、技术张力、温暖亲和，输出配色、字体与首屏布局。' }
 ];
 
-/* 套餐与积分：体验版 / 标准版 / 专业版
- * 每档含「月付」与「年付」两种价格（体验版免费，无年付）
+/* 套餐与积分：免费版 / 基础会员 / 标准会员 / 高级会员
+ * 计费模型参考即梦 AI 的积分会员制，映射为工作台的三类任务：
+ *   1. 免费版每日签到领积分，会员按自然月发放积分，当月有效、月底清零
+ *   2. 积分按任务类型消耗（办公 / 开发 / 设计），档位越高积分单价越低
+ *   3. 闲时（22:00–08:00）执行任务按档位打折，最低 1 折
+ *   4. 权益按档位分层：导出标识、算力队列、商用授权、并发与任务数
  */
 const PLANS = [
   {
-    id: 'trial', name: '体验版', tag: '免费',
+    id: 'trial', name: '免费版', tag: '永久免费',
     price: 0, priceYear: 0, period: '永久',
-    credits: 100, /* 每月赠送积分 */
-    desc: '上手体验核心能力，适合个人轻量使用。',
-    limits: { maxTasks: 10, maxConcurrent: 1, dailyCredits: 30 },
-    features: ['内置 10 个开源模型', '每月 100 积分（约 30 次任务）', '最多 10 个任务', '单任务单次执行', '基础文档 / 表格技能', '社区支持'],
+    credits: 600,        /* 每月可用额度（每日签到累计，用于进度条分母） */
+    monthlyGrant: 0,     /* 免费版不发放月度积分 */
+    checkIn: 20,         /* 每日签到赠送积分 */
+    unitPrice: 0,        /* 元 / 100 积分 */
+    offPeak: 1,          /* 闲时折扣系数，1 = 不打折 */
+    queue: '标准队列', watermark: true, commercial: '仅个人使用',
+    desc: '每日签到领积分，适合想先跑通流程的个人试用。',
+    limits: { maxTasks: 10, maxConcurrent: 1 },
+    features: ['每日签到领 20 积分（约 600 / 月）', '内置 10 个开源模型', '最多 10 个任务 · 1 并发', '标准生成队列', '导出文件带 PlatformX 标识', '社区支持'],
     highlight: false
   },
   {
-    id: 'standard', name: '标准版', tag: '推荐',
-    price: 9, priceYear: 88, period: '月', /* 月付 9 元/月 · 年付 88 元/年 */
-    credits: 2000, /* 每月赠送积分 */
-    desc: '日常办公与开发的主力档位，额度与并发更宽裕。',
-    limits: { maxTasks: 500, maxConcurrent: 3, dailyCredits: null },
-    features: ['全部开源模型 + 自定义模型', '每月 2000 积分（约 600 次任务）', '最多 500 个任务', '3 个并发任务', '语音输入 · 增强提示词', '专家 / 技能 / 连接器全量开放', '邮箱支持'],
+    id: 'basic', name: '基础会员', tag: '',
+    price: 39, priceYear: 399,
+    credits: 1200, monthlyGrant: 1200, checkIn: 30,
+    unitPrice: 3.25, offPeak: 0.5,
+    queue: '标准队列', watermark: false, commercial: '仅个人使用',
+    desc: '个人高频使用，导出无标识，闲时积分 5 折。',
+    limits: { maxTasks: 300, maxConcurrent: 2 },
+    features: ['每月 1200 积分（当月有效）', '开源模型不限 + 自定义模型', '导出无标识 · 1080P 报告', '闲时（22:00–08:00）5 折积分', '最多 300 个任务 · 2 并发', '每日签到 30 积分', '邮箱支持'],
+    highlight: false
+  },
+  {
+    id: 'standard', name: '标准会员', tag: '推荐',
+    price: 129, priceYear: 1299,
+    credits: 5000, monthlyGrant: 5000, checkIn: 50,
+    unitPrice: 2.58, offPeak: 0.3,
+    queue: '优先队列', watermark: false, commercial: '企业商用授权（基础）',
+    desc: '团队与创作者主力档位，优先算力 + 基础商用授权。',
+    limits: { maxTasks: 2000, maxConcurrent: 5 },
+    features: ['每月 5000 积分（当月有效）', '基础会员全部权益', '优先算力队列 · 专业模型', '闲时 3 折积分', '企业商用授权（基础权限）', '专家 / 技能 / 连接器全量开放', '每日签到 50 积分 · 工作日支持'],
     highlight: true
   },
   {
-    id: 'pro', name: '专业版', tag: '最高配',
-    price: 99, priceYear: 888, period: '月', /* 月付 99 元/月 · 年付 888 元/年 */
-    credits: 10000, /* 每月赠送积分 */
-    desc: '重度用户与团队场景，不限任务数、最高并发。',
-    limits: { maxTasks: Infinity, maxConcurrent: 10, dailyCredits: null },
-    features: ['标准版全部能力', '每月 10000 积分', '任务数不限', '10 个并发任务', '自定义网关 / 私有化部署支持', '自动化与定时任务', '优先客服 · 专属顾问'],
+    id: 'pro', name: '高级会员', tag: '最高配',
+    price: 399, priceYear: 3999,
+    credits: 20000, monthlyGrant: 20000, checkIn: 100,
+    unitPrice: 2.00, offPeak: 0.1,
+    queue: '极速队列', watermark: false, commercial: '完整商用 + 私有化',
+    desc: '重度用户与团队，极速算力、完整商用与专属支持。',
+    limits: { maxTasks: Infinity, maxConcurrent: 10 },
+    features: ['每月 20000 积分（当月有效）', '标准会员全部权益', '极速算力 · 专属模型', '闲时 1 折积分', '完整商用授权 + 私有化部署', '任务数不限 · 10 并发', '每日签到 100 积分 · 专属顾问 7×24'],
     highlight: false
   }
 ];
 
-/* 积分充值包（元），点击后走微信/支付宝扫码支付 */
+/* 任务积分消耗（按任务类型计费，参照即梦「图片 / 视频按类型扣积分」）
+ * 实际扣减 = ceil(base × 当前套餐闲时系数)
+ */
+const TASK_COSTS = [
+  { mode: 'office', base: 5,  name: '办公任务', desc: '文档 · 表格 · 汇报 · 纪要' },
+  { mode: 'dev',    base: 8,  name: '开发任务', desc: '架构 · 编码 · 调试 · 部署' },
+  { mode: 'design', base: 12, name: '设计任务', desc: '界面 · 视觉 · 原型 · 设计系统' }
+];
+
+/* 积分充值包（元），点击后走微信/支付宝扫码支付
+ * 充值积分不随月度清零，有效期 12 个月
+ */
 const CREDIT_PACKS = [
-  { id: 'p100', credits: 100, price: 6, tag: '' },
-  { id: 'p500', credits: 500, price: 25, tag: '95 折' },
-  { id: 'p1000', credits: 1000, price: 45, tag: '9 折' },
-  { id: 'p3000', credits: 3000, price: 120, tag: '8 折' }
+  { id: 'p500',   credits: 500,   price: 15,  tag: '',       unit: 3.0 },
+  { id: 'p2000',  credits: 2000,  price: 52,  tag: '87 折', unit: 2.6 },
+  { id: 'p5000',  credits: 5000,  price: 115, tag: '77 折', unit: 2.3 },
+  { id: 'p20000', credits: 20000, price: 400, tag: '67 折', unit: 2.0 }
 ];
 
 const NAV = [
