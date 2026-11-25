@@ -322,6 +322,7 @@ const state = {
   // 云服务状态
   cloudSession: null,      // 当前登录会话（cloud.auth.getSession() 返回）
   cloudSyncing: false,     // 是否正在云端同步
+  skus: [],                // 服务端价格目录（登录后拉取，下单金额以此为准）
   authView: null           // 登录弹窗视图状态
 };
 
@@ -376,6 +377,7 @@ function normalizePlan() {
   }
   if (typeof store.streak !== 'number') store.streak = 0;
   ensureCreditPeriod();
+  saveStore();   // 首次启动即落盘，保证本地存储始终可读
 }
 
 /* 内置模型 + 已保存的自定义模型合并为可选列表 */
@@ -424,37 +426,119 @@ async function refreshCloudSession() {
   return state.cloudSession;
 }
 
-/* 从云端拉取用户状态（套餐/积分/流水/设置），合并进本地 store */
+/* 从云端拉取用户状态（套餐/积分/流水/设置），合并进本地 store
+ * 计费已服务端化：套餐、余额、月度积分周期、签到状态均由 px_bootstrap 计算，前端只读。
+ */
 async function pullCloudState() {
   if (!CLOUD.authed) return false;
-  const { data, error } = await cloud.database
-    .from('user_state')
-    .select('plan, credits, credit_log, settings')
-    .maybeSingle();
-  if (error || !data) return false;
-
-  if (data.plan) store.plan = data.plan;
-  if (typeof data.credits === 'number') store.credits = data.credits;
-  if (Array.isArray(data.credit_log)) store.creditLog = data.credit_log;
-  if (data.settings && typeof data.settings === 'object') {
-    store.settings = { ...store.settings, ...data.settings };
+  const { data, error } = await rpc('px_bootstrap');
+  if (error || !data) {
+    // 兜底：bootstrap 不可用时至少只读一次服务端状态，避免展示过期余额
+    const fb = await cloud.database
+      .from('user_state')
+      .select('plan, credits, credit_period, last_check_in, streak, settings')
+      .maybeSingle();
+    if (fb.error || !fb.data) return false;
+    applyServerState(fb.data);
+    if (fb.data.settings && typeof fb.data.settings === 'object') {
+      store.settings = { ...store.settings, ...fb.data.settings };
+    }
+    await pullCreditLedger();
+    await pullSkus();
+    return true;
   }
-  normalizePlan();
+
+  applyServerState(data);
+
+  const st = await cloud.database.from('user_state').select('settings').maybeSingle();
+  if (!st.error && st.data && st.data.settings && typeof st.data.settings === 'object') {
+    store.settings = { ...store.settings, ...st.data.settings };
+  }
+  await pullCreditLedger();
+  await pullSkus();
   return true;
 }
 
-/* 把当前用户状态推送到云端（upsert 当前用户那一行） */
+/* 拉取服务端价格目录（下单金额一律以服务端核价为准，前端仅用于展示） */
+async function pullSkus() {
+  if (!CLOUD.authed) return false;
+  const { data, error } = await cloud.database
+    .from('billing_skus')
+    .select('sku, kind, title, price_cents, credits, plan_id, period_months')
+    .order('sort', { ascending: true });
+  if (error || !Array.isArray(data)) return false;
+  state.skus = data;
+  return true;
+}
+
+/* 服务端 SKU 查询（无则回退本地常量） */
+function skuForPlan(planId, cycle) {
+  const key = `plan_${planId}_${cycle === 'year' ? 'y' : 'm'}`;
+  return (state.skus || []).find(s => s.sku === key) || null;
+}
+function skuForPack(credits) {
+  return (state.skus || []).find(s => s.kind === 'credits' && s.credits === credits) || null;
+}
+
+/* 服务端 RPC 统一入口 */
+async function rpc(fn, args) {
+  if (!CLOUD.ready) return { error: { message: 'cloud_unavailable' } };
+  try {
+    const { data, error } = await cloud.database.rpc(fn, args || {});
+    if (error) return { error };
+    return { data };
+  } catch (e) {
+    return { error: { message: String(e) } };
+  }
+}
+
+/* 应用服务端返回的账户状态（套餐 / 余额 / 月度周期 / 签到） */
+function applyServerState(d) {
+  if (!d) return false;
+  let changed = false;
+  if (d.plan && d.plan !== store.plan) { store.plan = d.plan; changed = true; }
+  if (typeof d.credits === 'number' && d.credits !== store.credits) { store.credits = d.credits; changed = true; }
+  if (d.credit_period && typeof d.credit_period === 'object') {
+    const p = d.credit_period;
+    const start = new Date(p.start).getTime();
+    const expires = new Date(p.expires).getTime();
+    if (start && expires) {
+      store.creditPeriod = { start, expires, granted: Number(p.granted) || 0 };
+      changed = true;
+    }
+  }
+  if (d.last_check_in) {
+    const dt = new Date(d.last_check_in);
+    store.lastCheckIn = `${dt.getFullYear()}-${dt.getMonth() + 1}-${dt.getDate()}`;
+  }
+  if (typeof d.streak === 'number') store.streak = d.streak;
+  if (changed) saveStore();
+  return changed;
+}
+
+/* 拉取服务端积分流水（登录后明细以云端为准） */
+async function pullCreditLedger() {
+  if (!CLOUD.authed) return false;
+  const { data, error } = await cloud.database
+    .from('credit_ledger')
+    .select('delta, balance_after, reason, created_at')
+    .order('created_at', { ascending: false })
+    .limit(100);
+  if (error) return false;
+  store.creditLog = (data || []).map(r => ({
+    id: 'sv-' + r.created_at + '-' + r.delta,
+    delta: r.delta,
+    balance: r.balance_after,
+    note: r.reason,
+    at: new Date(r.created_at).getTime()
+  }));
+  return true;
+}
+
+/* 只同步设置到云端；套餐与积分不再由前端写入（已收回写权限，只能走 RPC） */
 async function pushCloudState() {
   if (!CLOUD.authed) return false;
-  const payload = {
-    plan: store.plan,
-    credits: store.credits,
-    credit_log: store.creditLog,
-    settings: store.settings
-  };
-  const { data, error } = await cloud.database
-    .from('user_state')
-    .upsert(payload, { onConflict: 'owner_id' });
+  const { error } = await rpc('px_update_settings', { p_settings: store.settings });
   return !error;
 }
 
@@ -939,8 +1023,30 @@ function todayKey() {
   return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
 }
 function canCheckIn() { return store.lastCheckIn !== todayKey(); }
-function doCheckIn() {
+
+/* 每日签到：登录后由服务端判定与发放，未登录走本地演示 */
+async function doCheckIn() {
   if (!canCheckIn()) { toast('今天已经签到过了，明天再来'); return; }
+
+  if (CLOUD.authed) {
+    const { data, error } = await rpc('px_check_in');
+    if (error || !data) { toast('签到服务暂不可用，请稍后重试'); return; }
+    store.lastCheckIn = todayKey();
+    if (!data.ok) {
+      saveStore();
+      toast('今天已经签到过了，明天再来');
+      if (state.route === 'plans') renderPlans();
+      return;
+    }
+    applyServerState({ credits: data.credits, streak: data.streak });
+    saveStore();
+    await pullCreditLedger();
+    toast(`签到成功 +${data.reward} 积分（连续 ${data.streak} 天）`);
+    refreshBillingUI();
+    if (state.route === 'plans') renderPlans();
+    return;
+  }
+
   const reward = planMeta().checkIn || 20;
   const yesterday = new Date(Date.now() - 86400000);
   const yKey = `${yesterday.getFullYear()}-${yesterday.getMonth() + 1}-${yesterday.getDate()}`;
@@ -951,46 +1057,94 @@ function doCheckIn() {
   toast(`签到成功 +${reward + bonus} 积分`);
 }
 
+/* 本地记账：仅在未登录（演示）时使用；登录后一律走服务端 RPC */
 function addCredits(amount, note) {
+  if (CLOUD.authed) { console.warn('[billing] 登录态下不接受本地加积分，请使用服务端 RPC'); return; }
   store.credits += amount;
   store.creditLog.unshift({ id: uid('cl'), delta: amount, note, at: Date.now() });
   if (store.creditLog.length > 100) store.creditLog.length = 100;
   saveStore();
-  pushCloudState();
   refreshBillingUI();
   if (state.route === 'plans') renderPlans();
 }
 
 function spendCredits(amount, note) {
+  if (CLOUD.authed) { console.warn('[billing] 登录态下不接受本地扣积分，请使用服务端 RPC'); return false; }
   if (store.credits < amount) return false;
   store.credits -= amount;
   store.creditLog.unshift({ id: uid('cl'), delta: -amount, note, at: Date.now() });
   if (store.creditLog.length > 100) store.creditLog.length = 100;
   saveStore();
-  pushCloudState();
   refreshBillingUI();
   if (state.route === 'plans') renderPlans();
   return true;
 }
 
-/* 切换套餐：先弹扫码支付，支付成功后生效（演示支付为模拟到账） */
-function switchPlan(id, cycle = billingCycle()) {
-  const p = PLANS.find(x => x.id === id);
-  if (!p) return;
-  if (p.id === store.plan) { toast('当前已是' + p.name); return; }
-  if (p.price === 0) { activatePlan(p.id, cycle); return; }
-
-  const price = cycle === 'year' ? p.priceYear : p.price;
-  const cycleLabel = cycle === 'year' ? '年付' : '月付';
-  openPayModal({
-    title: `开通${p.name}（${cycleLabel}）`,
-    amount: price,
-    desc: `${p.name} · ${cycleLabel} · 有效期 ${cycle === 'year' ? '12 个月' : '1 个月'}`,
-    onSuccess: () => activatePlan(p.id, cycle)
+/* 需要登录才能进行的计费操作 */
+function requireLogin(reason) {
+  closeModal();
+  openModal({
+    title: '需要登录',
+    desc: reason || '充值与套餐变更需要登录账号。',
+    body: `<div class="upgrade-hint">
+      <div class="uh-ico">${icon('lock', 22)}</div>
+      <div class="uh-text">登录后订单、积分与流水都记在账号下，换设备可查、可对账。</div>
+    </div>`,
+    foot: `
+      <button class="ghost-btn" data-act="close-modal">知道了</button>
+      <button class="primary-btn" data-act="login">去登录</button>`
   });
 }
 
-/* 支付成功后真正生效（切换套餐 + 发放当月积分） */
+/* 切换套餐：服务端按 SKU 核价下单 → 扫码 → 确认到账（px_confirm_pay） */
+async function switchPlan(id, cycle = billingCycle()) {
+  const p = PLANS.find(x => x.id === id);
+  if (!p) return;
+  if (p.id === store.plan) { toast('当前已是' + p.name); return; }
+
+  const cycleLabel = cycle === 'year' ? '年付' : '月付';
+
+  if (!CLOUD.authed) {
+    if (p.price === 0) { activatePlan(p.id, cycle); return; }
+    requireLogin('开通会员需要登录，订单与积分会记在账号下。');
+    return;
+  }
+
+  const sku = `plan_${p.id}_${cycle === 'year' ? 'y' : 'm'}`;
+  const res = await rpc('px_create_order', { p_sku: sku, p_method: 'wechat' });
+  if (res.error || !res.data) { toast('下单失败，请稍后重试'); return; }
+  const order = res.data;
+
+  // 免费档直接确认（金额 0，无支付环节）
+  if (order.amount_cents === 0) {
+    const r = await rpc('px_confirm_pay', { p_order_no: order.order_no });
+    if (r.error || !r.data || !r.data.ok) { toast('切换失败，请稍后重试'); return; }
+    applyServerState(r.data);
+    await pullCreditLedger();
+    toast(`已切换到${p.name}`);
+    renderPlans();
+    renderNav();
+    return;
+  }
+
+  openPayModal({
+    title: `开通${p.name}（${cycleLabel}）`,
+    amount: (order.amount_cents / 100).toFixed(2),
+    desc: `${p.name} · ${cycleLabel} · 每月 ${p.monthlyGrant} 积分`,
+    orderNo: order.order_no,
+    onPaid: async () => {
+      const r = await rpc('px_confirm_pay', { p_order_no: order.order_no });
+      if (r.error || !r.data || !r.data.ok) { toast('订单确认失败，请稍后重试'); return; }
+      applyServerState(r.data);
+      await pullCreditLedger();
+      toast(`已开通${p.name}，到账 ${order.credits} 积分`);
+      renderPlans();
+      renderNav();
+    }
+  });
+}
+
+/* 未登录时的免费档切换（本地演示） */
 function activatePlan(id, cycle) {
   const p = PLANS.find(x => x.id === id);
   if (!p) return;
@@ -1084,16 +1238,15 @@ const PAY_METHODS = [
     logo: 'M19.695 15.07c3.426 1.158 4.203 1.22 4.203 1.22V3.846c0-2.124-1.705-3.845-3.81-3.845H3.914C1.808.001.102 1.722.102 3.846v16.31c0 2.123 1.706 3.845 3.813 3.845h16.173c2.105 0 3.81-1.722 3.81-3.845v-.157s-6.19-2.602-9.315-4.119c-2.096 2.602-4.8 4.181-7.607 4.181-4.75 0-6.361-4.19-4.112-6.949.49-.602 1.324-1.175 2.617-1.497 2.025-.502 5.247.313 8.266 1.317a16.796 16.796 0 0 0 1.341-3.302H5.781v-.952h4.799V6.975H4.77v-.953h5.81V3.591s0-.409.411-.409h2.347v2.84h5.744v.951h-5.744v1.704h4.69a19.453 19.453 0 0 1-1.986 5.06c1.424.52 2.702 1.011 3.654 1.333m-13.81-2.032c-.596.06-1.71.325-2.321.869-1.83 1.608-.735 4.55 2.968 4.55 2.151 0 4.301-1.388 5.99-3.61-2.403-1.182-4.438-2.028-6.637-1.809' }
 ];
 
-function openPayModal({ title, amount, desc, onSuccess }) {
-  const pay = { method: 'wechat', title, amount, desc, onSuccess };
-  state.__pay = pay;
+function openPayModal({ title, amount, desc, orderNo, method = 'wechat', onPaid }) {
+  state.__pay = { title, amount, desc, orderNo: orderNo || '', method, onPaid };
   renderPayModal();
 }
 
 function renderPayModal() {
   const pay = state.__pay;
   if (!pay) return;
-  const seed = `px-pay-${pay.method}-${pay.amount}-${Date.now()}`;
+  const seed = `px-pay-${pay.orderNo || pay.amount}-${pay.method}`;
   const m = $('#modal');
   m.className = 'modal pay-modal';
   m.innerHTML = `
@@ -1114,22 +1267,30 @@ function renderPayModal() {
             <span class="pm-logo"><svg viewBox="0 0 24 24" width="18" height="18" fill="${m.color}" aria-hidden="true"><path d="${m.logo}"/></svg></span>${esc(m.name)}
           </button>`).join('')}
       </div>
-      <div class="pay-hint">演示环境：请使用对应 App 扫描二维码完成支付，支付结果将自动到账。</div>
+      ${pay.orderNo ? `<div class="pay-order">订单号 <code>${esc(pay.orderNo)}</code><span class="pay-order-note">金额与权益由服务端核价，到账后写入云端账本</span></div>` : ''}
+      <div class="pay-hint">扫码完成支付后点击下方按钮确认到账；订单状态与积分变动保存在云端，可在「积分明细」核对。</div>
     </div>
     <div class="modal-foot">
       <button class="ghost-btn" data-act="close-modal">取消</button>
-      <button class="primary-btn" data-act="simulate-pay">我已支付，模拟到账</button>
+      <button class="primary-btn" data-act="confirm-pay">我已完成支付</button>
     </div>`;
   $('#modal-overlay').hidden = false;
 }
 
-/* 模拟支付成功（演示：直接回调到账，不接真实支付网关） */
-function simulatePay() {
+/* 确认到账：调用服务端订单入账（px_confirm_pay），余额以服务端返回为准 */
+async function confirmPay() {
   const pay = state.__pay;
   if (!pay) return;
-  closeModal();
-  state.__pay = null;
-  if (pay.onSuccess) pay.onSuccess();
+  const btn = $('#modal [data-act="confirm-pay"]');
+  if (btn) { btn.disabled = true; btn.textContent = '确认中…'; }
+  try {
+    if (pay.onPaid) await pay.onPaid();
+  } catch (e) {
+    toast('确认失败，请稍后重试');
+  } finally {
+    closeModal();
+    state.__pay = null;
+  }
 }
 
 /* 刷新侧栏额度卡片与用户套餐标签（DOM 存在时才更新） */
@@ -2091,6 +2252,18 @@ function renderPlans() {
     <div class="scroll"><div class="page">
       ${pageHead('套餐与积分', '积分按任务类型消耗，会员积分每月发放、当月有效；闲时（22:00–08:00）执行任务最低 1 折。')}
 
+      ${CLOUD.authed ? `
+      <div class="billing-mode on">
+        ${icon('shield', 14)}
+        <span>云端计费已启用：余额、订单与流水由服务端记账，前端不可篡改</span>
+      </div>` : `
+      <div class="billing-mode off">
+        ${icon('lock', 14)}
+        <span>未登录：当前为本地演示账本，充值与开通会员需登录后在云端记账</span>
+        <span class="grow"></span>
+        <button class="small-btn solid" data-act="login">登录</button>
+      </div>`}
+
       <div class="billing-hero">
         <div class="bh-left">
           <div class="bh-label">当前套餐</div>
@@ -2155,10 +2328,15 @@ function renderPlans() {
       </div>
       <div class="plan-grid">
         ${PLANS.map(p => {
-          const price = cycle === 'year' ? p.priceYear : p.price;
+          const sku = skuForPlan(p.id, cycle);
+          const priceCents = sku ? sku.price_cents : (cycle === 'year' ? p.priceYear : p.price) * 100;
+          const priceNum = priceCents / 100;
+          const priceText = priceNum % 1 === 0 ? String(priceNum) : priceNum.toFixed(2);
           const period = cycle === 'year' ? '年' : '月';
-          const save = cycle === 'year' && p.price > 0 ? p.price * 12 - p.priceYear : 0;
           const monthCredits = p.monthlyGrant || 0;
+          const unit = p.unitPrice > 0 ? p.unitPrice : 0;
+          const saveCents = cycle === 'year' ? p.price * 12 * 100 - priceCents : 0;
+          const saveText = saveCents > 0 ? (saveCents / 100) % 1 === 0 ? String(saveCents / 100) : (saveCents / 100).toFixed(2) : '';
           return `
           <div class="plan-card ${p.id === plan.id ? 'current' : ''} ${p.highlight ? 'highlight' : ''}">
             ${p.highlight ? `<div class="plan-ribbon">最受欢迎</div>` : ''}
@@ -2167,15 +2345,15 @@ function renderPlans() {
               ${p.tag ? `<span class="plan-tag">${esc(p.tag)}</span>` : ''}
             </div>
             <div class="plan-price">
-              ${p.price === 0 ? `<span class="plan-amount">免费</span>` : `<span class="plan-amount">¥${price}</span><span class="plan-period">/ ${period}</span>`}
+              ${priceCents === 0 ? `<span class="plan-amount">免费</span>` : `<span class="plan-amount">¥${priceText}</span><span class="plan-period">/ ${period}</span>`}
             </div>
             <div class="plan-credit">
               ${monthCredits > 0 ? `每月 ${monthCredits} 积分` : `每日签到 ${p.checkIn} 积分`}
-              ${save > 0 ? `<span class="plan-save">省 ¥${save}</span>` : ''}
+              ${saveText ? `<span class="plan-save">省 ¥${saveText}</span>` : ''}
             </div>
             <div class="plan-subline">
-              ${p.unitPrice > 0
-                ? `<span class="pc-unit">${p.unitPrice.toFixed(2)} 元 / 100 积分</span>`
+              ${unit > 0
+                ? `<span class="pc-unit">${unit.toFixed(2)} 元 / 100 积分</span>`
                 : `<span class="pc-unit">仅可通过签到获取</span>`}
               <span class="pc-equiv">约 ${Math.floor((monthCredits || p.credits) / costOf(p, 'office'))} 次办公任务</span>
             </div>
@@ -2183,7 +2361,7 @@ function renderPlans() {
               ${p.features.map(f => `<li>${icon('check', 12)}${esc(f)}</li>`).join('')}
             </ul>
             <button class="plan-btn ${p.id === plan.id ? 'ghost-btn' : (p.highlight ? 'primary-btn' : 'ghost-btn')}" data-act="switch-plan" data-id="${p.id}" ${p.id === plan.id ? 'disabled' : ''}>
-              ${p.id === plan.id ? '当前套餐' : p.price === 0 ? '切换免费版' : '立即开通'}
+              ${p.id === plan.id ? '当前套餐' : priceCents === 0 ? '切换免费版' : '立即开通'}
             </button>
           </div>`;
         }).join('')}
@@ -2214,15 +2392,23 @@ function renderPlans() {
 
       <div class="section-title"><span>积分充值</span><span class="grow"></span><span class="bh-note">充值积分不随月度清零，有效期 12 个月</span></div>
       <div class="credit-pack-grid">
-        ${CREDIT_PACKS.map(c => `
+        ${CREDIT_PACKS.map(c => {
+          const ps = skuForPack(c.credits);
+          const cents = ps ? ps.price_cents : Math.round(c.price * 100);
+          const amount = cents / 100;
+          const unit = c.credits > 0 ? (amount / (c.credits / 100)) : 0;
+          return `
           <button class="credit-pack" data-act="buy-credits" data-id="${c.id}">
             <div class="cp-amount">${icon('coin', 15)}${c.credits}</div>
-            <div class="cp-unit">${c.unit.toFixed(2)} 元 / 100 积分</div>
-            <div class="cp-price">¥${c.price}${c.tag ? `<span class="cp-tag">${esc(c.tag)}</span>` : ''}</div>
-          </button>`).join('')}
+            <div class="cp-unit">${unit.toFixed(2)} 元 / 100 积分</div>
+            <div class="cp-price">¥${amount % 1 === 0 ? amount : amount.toFixed(2)}${c.tag ? `<span class="cp-tag">${esc(c.tag)}</span>` : ''}</div>
+          </button>`;
+        }).join('')}
       </div>
 
-      <div class="section-title"><span>积分明细</span></div>
+      <div class="section-title"><span>积分明细</span><span class="grow"></span>
+        <span class="bh-note">${CLOUD.authed ? '云端账本 · 不可篡改' : '本地演示记录'}</span>
+      </div>
       <div class="panel">
         ${store.creditLog.length ? `<div class="credit-log">
           ${store.creditLog.map(l => `
@@ -2492,19 +2678,19 @@ function bindComposer() {
   });
   setTimeout(() => ta.focus(), 40);
 
-  function send() {
+  async function send() {
     if (state.voice.active) finishVoice();
     const text = ta.value.trim();
     if (!text) { toast('先描述一下任务内容'); ta.focus(); return; }
     ta.value = '';
     state.enhance = null;
     autosize(ta);
-    submit(text);
+    await submit(text);
   }
   state.__send = send;
 }
 
-function submit(text) {
+async function submit(text) {
   if (state.route === 'task') {
     const task = state.tasks.find(t => t.id === state.currentTaskId);
     if (!task) return;
@@ -2513,12 +2699,12 @@ function submit(text) {
       state.attachments = [];
     }
     if (task.status === 'running') { toast('任务正在执行，请稍候'); return; }
-    if (!ensureBilling()) return;
+    if (!(await ensureBilling(task.mode))) return;
     runTask(task, text);
     return;
   }
 
-  if (!ensureBilling()) return;
+  if (!(await ensureBilling(state.mode))) return;
 
   const task = {
     id: uid('task'),
@@ -2540,11 +2726,34 @@ function submit(text) {
 }
 
 /* 提交任务前的套餐与积分校验；通过则扣积分并返回 true，否则弹引导并返回 false */
-function ensureBilling() {
+/* 提交任务前的计费校验。登录后由服务端 px_spend_credits 原子扣减（含任务数上限校验），
+ * 未登录时按本地规则演示扣减。 */
+async function ensureBilling(mode = state.mode) {
   const plan = planMeta();
-  const cost = taskCost();
 
-  // 任务数限额（体验版/标准版）
+  if (CLOUD.authed) {
+    const { data, error } = await rpc('px_spend_credits', { p_mode: mode });
+    if (error || !data) { toast('计费服务暂不可用，请稍后重试'); return false; }
+    if (!data.ok) {
+      if (data.reason === 'task_limit') {
+        openUpgradeModal(`「${plan.name}」最多保留 ${data.limit} 个任务，已达上限`, '升级套餐即可解除任务数限制。');
+      } else if (data.reason === 'insufficient') {
+        openUpgradeModal(`积分不足（需 ${data.cost} 积分，当前 ${data.credits}）`, '充值积分或升级更高档位（积分单价更低、闲时折扣更大）后继续。');
+      } else {
+        toast('计费失败：' + (data.reason || '未知原因'));
+      }
+      return false;
+    }
+    applyServerState({ credits: data.credits });
+    await pullCreditLedger();
+    refreshBillingUI();
+    if (state.route === 'plans') renderPlans();
+    return true;
+  }
+
+  const cost = taskCost(mode);
+
+  // 任务数限额（免费版/基础会员）
   const maxTasks = planTaskLimit();
   if (maxTasks !== Infinity && state.tasks.length >= maxTasks) {
     openUpgradeModal(`「${plan.name}」最多保留 ${maxTasks} 个任务，已达上限`, '升级套餐即可解除任务数限制。');
@@ -2557,7 +2766,7 @@ function ensureBilling() {
     return false;
   }
 
-  if (cost > 0) spendCredits(cost, `${MODES.find(m => m.id === state.mode)?.name || ''}任务${isOffPeak() ? '（闲时折扣）' : ''}`);
+  if (cost > 0) spendCredits(cost, `${MODES.find(m => m.id === mode)?.name || ''}任务${isOffPeak() ? '（闲时折扣）' : ''}`);
   return true;
 }
 
@@ -3188,7 +3397,7 @@ function palettePick(idx) {
 }
 
 /* ------------------------------ 事件 ------------------------------ */
-function handleClick(e) {
+async function handleClick(e) {
   const el = e.target.closest('[data-act]');
   if (!el) {
     if (!$('#popover').hidden && !e.target.closest('#popover')) closePopover();
@@ -3276,13 +3485,23 @@ function handleClick(e) {
     case 'buy-credits': {
       const pack = CREDIT_PACKS.find(p => p.id === id);
       if (!pack) break;
+      if (!CLOUD.authed) { requireLogin('充值需要登录，订单与积分会记在账号下，多端可查。'); break; }
+      const res = await rpc('px_create_order', { p_sku: `pack_${pack.credits}`, p_method: 'wechat' });
+      if (res.error || !res.data) { toast('下单失败，请稍后重试'); break; }
+      const order = res.data;
       openPayModal({
         title: '积分充值',
-        amount: pack.price,
-        desc: `充值 ${pack.credits} 积分（¥${pack.price}）`,
-        onSuccess: () => {
-          addCredits(pack.credits, `充值 ${pack.credits} 积分（¥${pack.price}）`);
-          toast(`已到账 ${pack.credits} 积分`);
+        amount: (order.amount_cents / 100).toFixed(2),
+        desc: `充值 ${order.credits} 积分 · 12 个月有效`,
+        orderNo: order.order_no,
+        onPaid: async () => {
+          const r = await rpc('px_confirm_pay', { p_order_no: order.order_no });
+          if (r.error || !r.data || !r.data.ok) { toast('订单确认失败，请稍后重试'); return; }
+          applyServerState(r.data);
+          await pullCreditLedger();
+          toast(`已到账 ${order.credits} 积分`);
+          refreshBillingUI();
+          if (state.route === 'plans') renderPlans();
         }
       });
       break;
@@ -3293,8 +3512,9 @@ function handleClick(e) {
       renderPayModal();
       break;
     }
-    case 'simulate-pay': simulatePay(); break;
+    case 'confirm-pay': await confirmPay(); break;
     case 'go-plans': closeModal(); navigate('plans'); break;
+    case 'login': closeModal(); openLoginModal(); break;
     case 'set-mode': state.mode = el.dataset.mode; syncComposer(); break;
     case 'send': state.__send && state.__send(); break;
     case 'voice-input': toggleVoice(); break;
