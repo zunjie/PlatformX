@@ -819,41 +819,32 @@ await check('I10', '套餐页四档齐全 + 月付/年付双价', async () => {
   return '四档套餐 + 月付/年付双价';
 });
 
-await check('I11', '充值积分：弹扫码支付 → 模拟到账', async () => {
+await check('I11', '未登录充值与开通均引导登录', async () => {
   await page.click('[data-act="buy-credits"][data-id="p2000"]');
   await sleep(400);
   const overlay = await page.$eval('#modal-overlay', e => !e.hidden);
-  assert(overlay, '充值未弹支付弹窗');
-  const mtext = await page.$eval('#modal', e => e.textContent);
-  assert(/积分充值/.test(mtext) && /¥52/.test(mtext), '充值弹窗金额错误');
-  // 切支付宝再切回微信，验证支付方式切换
-  await page.click('.pay-method[data-id="alipay"]');
-  await sleep(150);
-  assert((await page.$eval('.pay-qr-brand', e => e.textContent)).includes('支付宝'), '未切到支付宝');
-  await page.click('.pay-method[data-id="wechat"]');
-  await sleep(150);
-  await page.click('[data-act="simulate-pay"]');
-  await sleep(400);
-  const num = await page.$eval('.bh-credit-num', e => e.textContent.trim());
-  assert(num === '2100', '充值后应为 2100, 实际 ' + num);
-  const log = await page.$eval('.credit-log', e => e.textContent);
-  assert(/充值 2000 积分/.test(log), '流水未记录');
-  return num + ' 积分';
-});
+  assert(overlay, '未弹提示弹窗');
+  const t1 = await page.$eval('#modal', e => e.textContent);
+  assert(/需要登录/.test(t1), '充值应先要求登录');
+  await page.click('[data-act="close-modal"]');
+  await sleep(200);
 
-await check('I12', '购买标准会员：弹支付 → 到账切换', async () => {
   await page.click('[data-act="switch-plan"][data-id="standard"]');
   await sleep(400);
-  const overlay = await page.$eval('#modal-overlay', e => !e.hidden);
-  assert(overlay, '购买未弹支付弹窗');
-  assert(/开通标准会员/.test(await page.$eval('#modal', e => e.textContent)), '标题错误');
-  await page.click('[data-act="simulate-pay"]');
-  await sleep(450);
-  const plan = await page.$eval('.bh-plan', e => e.textContent);
-  assert(/标准会员/.test(plan), '未切换: ' + plan);
-  const num = await page.$eval('.bh-credit-num', e => e.textContent.trim());
-  assert(num === '7100', '标准会员应为 7100（2100+5000）, 实际 ' + num);
-  return '标准会员 · ' + num;
+  const t2 = await page.$eval('#modal', e => e.textContent);
+  assert(/需要登录/.test(t2), '开通会员应先要求登录');
+  await page.click('[data-act="close-modal"]');
+  await sleep(200);
+  return '充值 + 开通均拦截';
+});
+
+await check('I12', '套餐卡展示积分单价与可做任务数', async () => {
+  const units = await page.$$eval('.pc-unit', e => e.map(x => x.textContent.trim()));
+  assert(units.length === 4, '应有 4 个单价说明，实得 ' + units.length);
+  assert(units.some(u => /3\.25 元 \/ 100 积分/.test(u)), '基础会员单价缺失：' + units.join(' | '));
+  const equiv = await page.$$eval('.pc-equiv', e => e.map(x => x.textContent.trim()));
+  assert(equiv.every(t => /约 \d+ 次办公任务/.test(t)), '任务数估算异常：' + equiv.join(' | '));
+  return units.join(' | ');
 });
 
 await check('I13', '体验版积分不足拦截并可跳转', async () => {
