@@ -95,20 +95,44 @@ Pages 配置：source = `main` / 根目录，仓库根部的 `.nojekyll` 用于�
 
 **WorkBuddy 应用托管**：正式环境 `https://platformx.app.workbuddy.host/`，保留云服务 Origin 白名单，云端登录与跨设备同步仅在该域名下可用。
 
-## 云服务与限制
+## 云服务与计费
 
-云服务客户端在 `js/cloud.js` 中初始化，数据模型为两张表：
+云服务客户端在 `js/cloud.js` 中初始化。计费是**服务端权威**的：套餐、余额、订单与流水全部落在云端数据库，前端只读，不能直接改。
 
-- `user_state`：每用户一行，存 `plan` / `credits` / `credit_log` / `settings`
-- `tasks`：每用户多行，`task_uid` + `payload`（JSONB）存完整任务对象
+数据表：
 
-未登录或云端不可用时自动退回 `localStorage`，功能不中断。
+| 表 | 说明 |
+| --- | --- |
+| `user_state` | 每用户一行：`plan` / `credits` / `credit_period` / `last_check_in` / `streak` / `settings` |
+| `tasks` | 每用户多行：`task_uid` + `payload`（JSONB） |
+| `orders` | 预付费订单：服务端核价金额、SKU、状态（pending / paid）、支付方式、订单号 |
+| `credit_ledger` | 积分流水：`delta` / `balance_after` / `reason` / `order_no`，写入后不可改 |
+| `billing_plans` / `billing_skus` / `billing_task_costs` | 价格与计费规则目录，公开只读，仅服务端可改 |
 
-> **Origin 白名单限制**：服务端强制校验来源域名。在 `zunjie.github.io` 等自定义域名下访问时，云端登录与跨设备同步不可用，其余功能正常。正式使用请走 `platformx.app.workbuddy.host`。
+计费 RPC（`SECURITY DEFINER`，只授权给 `authenticated`）：
+
+| 函数 | 作用 |
+| --- | --- |
+| `px_bootstrap()` | 跨月发放会员积分，返回权威账户状态 |
+| `px_create_order(sku, method)` | 按 SKU 服务端核价并生成订单（前端不传金额） |
+| `px_confirm_pay(order_no)` | 订单置为 paid、入账、写流水，重复确认幂等返回 `status` |
+| `px_spend_credits(mode)` | 按任务类型 + 闲时系数计价扣减，含任务数上限校验 |
+| `px_check_in()` | 每日签到判定与发放（同日重复调用返回 `already_checked_in`） |
+| `px_update_settings(settings)` | 只更新设置，不碰余额 |
+
+权限边界：`authenticated` 对 `user_state` 只有 `SELECT`，对 `orders` / `credit_ledger` / 价格表只有 `SELECT`，且已收回 `TRUNCATE`；余额只能由上面这些函数修改。匿名访问（`auth.uid() = 'anon'`）会被全部计费函数拒绝，返回 `login_required`。
+
+未登录时前端不调用任何计费 RPC，页面使用 `localStorage` 本地演示账本（会显示黄色提示条），充值与开通会员引导先登录。
+
+> **Origin 白名单限制**：服务端强制校验来源域名。在 `zunjie.github.io` 等自定义域名下访问时，云端登录与计费不可用，其余功能正常。正式使用请走 `platformx.app.workbuddy.host`。
+
+> **支付通道现状**：本仓库未接入真实支付网关（需要商户号、APIv3 密钥与独立后端服务）。当前模型是「服务端下单 + 核价 + 用户确认到账」：金额、订单、入账、流水都真实落库可审计，唯独扣款环节由用户在付款后点击确认。接入真实支付时，只需把 `px_confirm_pay` 的调用方从「前端确认」换成「支付平台异步回调 + 主动查单」，其余表与前端流程无需改动。
 
 ## 版本
 
-当前版本 **v2.13**。近期变更：
+当前版本 **v2.14**。近期变更：
+
+- 充值与会员接入服务端真钱账本：订单、余额、流水落库可审计，前端无写权限；新增 6 个计费 RPC 与 5 张表
 
 - 套餐与积分重构为积分会员制（参考即梦 AI）：4 档会员、每日签到、月度积分当月有效、按任务类型扣积分、闲时折扣
 - 移动端三平台下载入口（iOS / Android / 鸿蒙，含二维码）暂时下线，相关实现保留在提交历史中，可按需恢复

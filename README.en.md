@@ -96,20 +96,40 @@ Pages config: source = `main` / repository root. The root `.nojekyll` file skips
 
 **WorkBuddy hosting**: production runs at `https://platformx.app.workbuddy.host/`, which keeps the cloud-service origin allowlist, so cloud sign-in and cross-device sync only work on that domain.
 
-## Cloud Service & Limits
+## Cloud Service & Billing
 
-The cloud client is bootstrapped in `js/cloud.js` with two tables:
+The cloud client is bootstrapped in `js/cloud.js`. Billing is **server-authoritative**: plan, balance, orders and ledger all live in the cloud database; the front end is read-only and cannot rewrite them.
 
-- `user_state`: one row per user — `plan` / `credits` / `credit_log` / `settings`
-- `tasks`: many rows per user — `task_uid` + `payload` (JSONB) holding the full task object
+| Table | Purpose |
+| --- | --- |
+| `user_state` | One row per user: `plan` / `credits` / `credit_period` / `last_check_in` / `streak` / `settings` |
+| `tasks` | Many rows per user: `task_uid` + `payload` (JSONB) |
+| `orders` | Prepaid orders: server-priced amount, SKU, status (pending / paid), payment method, order number |
+| `credit_ledger` | Append-only credit entries: `delta` / `balance_after` / `reason` / `order_no` |
+| `billing_plans` / `billing_skus` / `billing_task_costs` | Price and rule catalogues — public read-only, server-writable only |
 
-When signed out or the cloud is unreachable, the app falls back to `localStorage` and keeps working.
+Billing RPCs (`SECURITY DEFINER`, granted to `authenticated` only):
 
-> **Origin allowlist**: the backend enforces an exact origin match. On custom domains such as `zunjie.github.io`, cloud sign-in and cross-device sync are unavailable while everything else works normally. Use `platformx.app.workbuddy.host` for full functionality.
+| Function | Purpose |
+| --- | --- |
+| `px_bootstrap()` | Grants monthly membership credits on month rollover and returns authoritative state |
+| `px_create_order(sku, method)` | Prices the SKU server-side and creates an order (the client never sends an amount) |
+| `px_confirm_pay(order_no)` | Marks the order paid, credits the balance, writes the ledger; idempotent on repeat |
+| `px_spend_credits(mode)` | Charges by task type × off-peak factor, enforcing the task cap |
+| `px_check_in()` | Daily check-in, returns `already_checked_in` on the same day |
+| `px_update_settings(settings)` | Updates settings only, never the balance |
+
+Permission boundary: `authenticated` holds only `SELECT` on `user_state`, `orders`, `credit_ledger` and the price tables, and `TRUNCATE` has been revoked; balances can only change through the functions above. Anonymous callers (`auth.uid() = 'anon'`) are rejected by every billing function with `login_required`.
+
+Signed out, the app never calls a billing RPC — it uses a local demo ledger in `localStorage` (shown with a yellow banner) and prompts for sign-in before any top-up or upgrade.
+
+> **Origin allowlist**: the backend enforces an exact origin match. On custom domains such as `zunjie.github.io`, cloud sign-in and billing are unavailable while everything else works normally. Use `platformx.app.workbuddy.host` for full functionality.
+
+> **Payment gateway status**: no real gateway is wired in this repository (that needs a merchant account, APIv3 key and a separate backend service). The current model is *server-side order + server-side pricing + user-confirmed payment*: amounts, orders, credits and ledger are all persisted and auditable, but the actual capture step is a user confirmation after paying. To integrate a real gateway, replace the caller of `px_confirm_pay` with the provider's async callback plus an active query — tables and the rest of the flow stay unchanged.
 
 ## Version
 
-Current version **v2.13**. Recent changes:
+Current version **v2.14**. Recent changes:/n/n- Top-ups and memberships now run on a server-side real-money ledger: orders, balances and entries are persisted and auditable, with no client write access; 6 billing RPCs and 5 tables added
 
 - Plans & credits rebuilt as a credit-membership model (inspired by Jimeng AI): four tiers, daily check-in, monthly credits expiring at month end, per-task-type costs and off-peak discounts
 - Mobile download entries (iOS / Android / HarmonyOS, with QR code) temporarily removed; the implementation stays in git history and can be restored

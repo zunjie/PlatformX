@@ -503,7 +503,7 @@ function applyServerState(d) {
     const start = new Date(p.start).getTime();
     const expires = new Date(p.expires).getTime();
     if (start && expires) {
-      store.creditPeriod = { start, expires, granted: Number(p.granted) || 0 };
+      store.creditPeriod = { start, expires, granted: Number(p.granted) || 0, src: 'server' };
       changed = true;
     }
   }
@@ -979,10 +979,13 @@ function monthEnd(ts = Date.now()) {
   return new Date(d.getFullYear(), d.getMonth() + 1, 1).getTime();
 }
 
-/* 跨月时重置周期并发放会员积分（每月只发一次） */
+/* 跨月时重置周期并发放会员积分（每月只发一次）
+ * 服务端周期（src=server）未到期时一律以服务端为准，避免时区差异导致本地重复发放
+ */
 function ensureCreditPeriod() {
   const end = monthEnd();
   const p = store.creditPeriod;
+  if (p && p.src === 'server' && p.expires && p.expires > Date.now()) return false;
   if (p && p.expires === end) return false;
   store.creditPeriod = { start: monthStart(), expires: end, granted: 0 };
   const grant = planMeta().monthlyGrant || 0;
