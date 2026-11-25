@@ -60,8 +60,8 @@ await check('T2', '年付价格切换', async () => {
   return prices.join(' | ') + ' / ' + saves.join(' | ');
 });
 
-// T3 点击标准会员购买，弹出支付弹窗，默认微信
-await check('T3', '购买套餐弹出支付弹窗', async () => {
+// T3 未登录点击购买 → 引导登录（真钱计费需登录后由服务端记账）
+await check('T3', '未登录购买引导登录', async () => {
   await page.evaluate(() => {
     document.querySelector('.cycle-btn[data-id="month"]').click();
   });
@@ -69,70 +69,72 @@ await check('T3', '购买套餐弹出支付弹窗', async () => {
   await page.evaluate(() => {
     document.querySelector('.plan-card.highlight .plan-btn').click();
   });
-  await sleep(300);
+  await sleep(400);
   const overlay = await page.evaluate(() => !document.querySelector('#modal-overlay').hidden);
-  assert(overlay, '支付弹窗未打开');
+  assert(overlay, '未弹出提示弹窗');
   const txt = await page.evaluate(() => document.querySelector('#modal').textContent);
-  assert(txt.includes('开通标准会员'), '标题应含开通标准会员');
-  assert(txt.includes('¥129'), '金额应为129');
-  const brand = await page.evaluate(() => document.querySelector('.pay-qr-brand').textContent.trim());
-  assert(brand.includes('微信'), '默认应微信支付');
-  const qr = await page.evaluate(() => document.querySelector('.pay-qr svg') !== null);
-  assert(qr, '应生成二维码SVG');
-  await page.screenshot({ path: SHOTS + '/25-pay-wechat.png' });
-  return '弹窗+二维码+微信默认 OK';
+  assert(/需要登录/.test(txt), '应提示需要登录，实得：' + txt.slice(0, 40));
+  assert(/去登录/.test(txt), '应提供去登录按钮');
+  await page.screenshot({ path: SHOTS + '/25-pay-need-login.png' });
+  return '未登录拦截 OK';
 });
 
-// T4 切换到支付宝，二维码品牌变化
-await check('T4', '切换支付宝支付', async () => {
+// T4 点击「去登录」打开登录弹窗
+await check('T4', '登录引导跳转登录弹窗', async () => {
   await page.evaluate(() => {
-    document.querySelector('.pay-method[data-id="alipay"]').click();
-  });
-  await sleep(200);
-  const brand = await page.evaluate(() => document.querySelector('.pay-qr-brand').textContent.trim());
-  assert(brand.includes('支付宝'), '应切换为支付宝，实得' + brand);
-  await page.screenshot({ path: SHOTS + '/26-pay-alipay.png' });
-  return brand;
-});
-
-// T5 模拟支付到账，套餐切换为 standard
-await check('T5', '模拟支付后套餐生效', async () => {
-  await page.evaluate(() => {
-    document.querySelector('[data-act="simulate-pay"]').click();
+    document.querySelector('[data-act="login"]').click();
   });
   await sleep(400);
-  const plan = await page.evaluate(() => document.querySelector('.bh-plan').textContent.trim());
-  assert(plan.includes('标准会员'), '应切到标准会员，实得' + plan);
-  const overlay = await page.evaluate(() => document.querySelector('#modal-overlay').hidden);
-  assert(overlay, '弹窗应关闭');
-  return plan;
+  const txt = await page.evaluate(() => document.querySelector('#modal').textContent);
+  assert(/登录 PlatformX/.test(txt), '未打开登录弹窗，实得：' + txt.slice(0, 40));
+  const tabs = await page.evaluate(() => document.querySelectorAll('.login-tab').length);
+  assert(tabs >= 3, '登录方式应有 3 种，实得 ' + tabs);
+  await page.evaluate(() => document.querySelector('[data-act="close-modal"]').click());
+  await sleep(200);
+  return '邮箱 / 手机号 / 微信 ' + tabs + ' 种方式';
 });
 
-// T6 积分充值弹出支付弹窗
-await check('T6', '积分充值弹支付弹窗', async () => {
-  await page.evaluate(() => { location.hash = '#/plans'; location.reload(); });
-  await sleep(500);
-  const before = await page.evaluate(() => JSON.parse(localStorage.getItem('platformx.store.v1')).credits);
+// T5 未登录点击充值包 → 同样引导登录
+await check('T5', '未登录充值引导登录', async () => {
+  await page.evaluate(() => { location.hash = '#/plans'; });
+  await sleep(300);
   await page.evaluate(() => {
     document.querySelector('.credit-pack[data-id="p500"]').click();
   });
-  await sleep(300);
+  await sleep(400);
   const txt = await page.evaluate(() => document.querySelector('#modal').textContent);
-  assert(txt.includes('积分充值'), '标题应含积分充值');
-  assert(txt.includes('¥15'), '金额应为15');
-  return 'before credits=' + before;
+  assert(/需要登录/.test(txt), '充值应提示登录，实得：' + txt.slice(0, 40));
+  await page.evaluate(() => document.querySelector('[data-act="close-modal"]').click());
+  await sleep(200);
+  return '充值拦截 OK';
 });
 
-// T7 充值模拟到账，积分+100
-await check('T7', '充值模拟到账', async () => {
+// T6 未登录本地签到仍可用（演示账本）
+await check('T6', '未登录签到（本地演示）', async () => {
   await page.evaluate(() => {
-    document.querySelector('[data-act="simulate-pay"]').click();
+    const raw = localStorage.getItem('platformx.store.v1');
+    const s = raw ? JSON.parse(raw) : {};
+    s.credits = 100; s.plan = 'trial'; s.lastCheckIn = ''; s.streak = 0;
+    localStorage.setItem('platformx.store.v1', JSON.stringify(s));
+    location.hash = '#/plans';
+    location.reload();
   });
-  await sleep(400);
-  const after = await page.evaluate(() => JSON.parse(localStorage.getItem('platformx.store.v1')).credits);
-  const bh = await page.evaluate(() => document.querySelector('.bh-credit-num').textContent.trim());
-  assert(Number(bh) === after, '页面积分应与存储一致');
-  return 'credits=' + after;
+  await page.waitForFunction(() => document.querySelector('.checkin-btn'), { timeout: 8000 });
+  await sleep(500);
+  const btn = await page.evaluate(() => document.querySelector('.checkin-btn').textContent.replace(/\s+/g, ' ').trim());
+  assert(/签到领 20 积分/.test(btn), '签到按钮异常：' + btn);
+  await page.evaluate(() => document.querySelector('.checkin-btn').click());
+  await sleep(600);
+  const num = await page.evaluate(() => document.querySelector('.bh-credit-num').textContent.trim());
+  assert(num === '120', '签到后应为 120，实得 ' + num);
+  return '签到 +20 → ' + num;
+});
+
+// T7 计费模式提示条：未登录显示本地演示
+await check('T7', '计费模式提示条', async () => {
+  const txt = await page.evaluate(() => document.querySelector('.billing-mode')?.textContent.replace(/\s+/g, ' ').trim() || '');
+  assert(/未登录/.test(txt) && /本地演示/.test(txt), '提示条异常：' + txt);
+  return txt.slice(0, 40);
 });
 
 await page.screenshot({ path: SHOTS + '/27-plans-pay.png' });
